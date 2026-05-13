@@ -13,7 +13,7 @@ public class CashFlowService(AppDbContext db) : ICashFlowService
         var (start, end) = WibTimeZone.GetUtcDayBounds(date);
         var entries = new List<CashFlowEntryResponse>();
 
-        // 1. Transactions ? cash_in/sale_payment + new_debt/debt_created
+        // 1. Transactions - cash_in/sale_payment + new_debt/debt_created
         var transactions = await db.Transactions
             .Include(t => t.Customer)
             .Include(t => t.Staff)
@@ -38,7 +38,7 @@ public class CashFlowService(AppDbContext db) : ICashFlowService
             }
         }
 
-        // 2. DebtPayments ? cash_in/debt_payment
+        // 2. DebtPayments - cash_in/debt_payment
         var debtPayments = await db.DebtPayments
             .Include(dp => dp.Customer)
             .Include(dp => dp.Creator)
@@ -53,7 +53,7 @@ public class CashFlowService(AppDbContext db) : ICashFlowService
                 dp.Id, dp.Creator.Name, dp.CreatedAt));
         }
 
-        // 3. StockMovements with purchase_cost ? cash_out/stock_purchase
+        // 3. StockMovements with purchase_cost - cash_out/stock_purchase
         var purchases = await db.StockMovements
             .Include(m => m.Product)
             .Include(m => m.Creator)

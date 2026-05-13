@@ -33,7 +33,7 @@ public class DashboardService(AppDbContext db) : IDashboardService
             .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= prevStart && t.CreatedAt < prevEnd)
             .SumAsync(t => t.PaidAmount);
 
-        // Low stock (warehouse only, active products ? 5)
+        // Low stock (warehouse only, active products - 5)
         var warehouseLoc = await db.Locations.FirstOrDefaultAsync(l => l.Type == LocationType.Warehouse && l.IsActive);
         int lowStockCount = 0;
         if (warehouseLoc is not null)

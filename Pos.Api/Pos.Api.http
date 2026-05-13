@@ -1,6 +1,17 @@
 @Pos.Api_HostAddress = http://localhost:5094
 
-GET {{Pos.Api_HostAddress}}/weatherforecast/
+### Login
+POST {{Pos.Api_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "owner",
+  "password": "owner1234"
+}
+
+### Get Users
+GET {{Pos.Api_HostAddress}}/api/users
 Accept: application/json
+Authorization: Bearer {{token}}
 
 ###
