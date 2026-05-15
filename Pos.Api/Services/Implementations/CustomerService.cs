@@ -12,13 +12,43 @@ public class CustomerService(AppDbContext db) : ICustomerService
     {
         var q = db.Customers.AsQueryable();
         if (activeOnly) q = q.Where(c => c.IsActive);
-        return await q.OrderBy(c => c.Name).Select(c => MapToResponse(c)).ToListAsync();
+
+        var customers = await q.OrderBy(c => c.Name).ToListAsync();
+        var customerIds = customers.Select(c => c.Id).ToList();
+
+        var totalDebts = await db.Transactions
+            .Where(t => customerIds.Contains(t.CustomerId!.Value) && t.Status != Data.Enums.TransactionStatus.Cancelled)
+            .GroupBy(t => t.CustomerId!.Value)
+            .Select(g => new { CustomerId = g.Key, Total = g.Sum(t => t.DebtAmount) })
+            .ToDictionaryAsync(x => x.CustomerId, x => x.Total);
+
+        var totalPaid = await db.DebtPayments
+            .Where(dp => customerIds.Contains(dp.CustomerId))
+            .GroupBy(dp => dp.CustomerId)
+            .Select(g => new { CustomerId = g.Key, Total = g.Sum(dp => dp.Amount) })
+            .ToDictionaryAsync(x => x.CustomerId, x => x.Total);
+
+        return customers.Select(c =>
+        {
+            var debt = totalDebts.GetValueOrDefault(c.Id, 0m);
+            var paid = totalPaid.GetValueOrDefault(c.Id, 0m);
+            return MapToResponse(c, debt - paid);
+        });
     }
 
     public async Task<CustomerResponse?> GetByIdAsync(Guid id)
     {
         var c = await db.Customers.FindAsync(id);
-        return c is null ? null : MapToResponse(c);
+        if (c is null) return null;
+
+        var totalDebt = await db.Transactions
+            .Where(t => t.CustomerId == id && t.Status != Data.Enums.TransactionStatus.Cancelled)
+            .SumAsync(t => t.DebtAmount);
+        var totalPaid = await db.DebtPayments
+            .Where(dp => dp.CustomerId == id)
+            .SumAsync(dp => dp.Amount);
+
+        return MapToResponse(c, totalDebt - totalPaid);
     }
 
     public async Task<(CustomerResponse? Customer, string? Error)> CreateAsync(CreateCustomerRequest request)
@@ -31,7 +61,7 @@ public class CustomerService(AppDbContext db) : ICustomerService
         };
         db.Customers.Add(customer);
         await db.SaveChangesAsync();
-        return (MapToResponse(customer), null);
+        return (MapToResponse(customer, 0m), null);
     }
 
     public async Task<(CustomerResponse? Customer, string? Error)> UpdateAsync(Guid id, UpdateCustomerRequest request)
@@ -43,7 +73,15 @@ public class CustomerService(AppDbContext db) : ICustomerService
         customer.Address = request.Address?.Trim();
         customer.IsActive = request.IsActive;
         await db.SaveChangesAsync();
-        return (MapToResponse(customer), null);
+
+        var totalDebt = await db.Transactions
+            .Where(t => t.CustomerId == id && t.Status != Data.Enums.TransactionStatus.Cancelled)
+            .SumAsync(t => t.DebtAmount);
+        var totalPaid = await db.DebtPayments
+            .Where(dp => dp.CustomerId == id)
+            .SumAsync(dp => dp.Amount);
+
+        return (MapToResponse(customer, totalDebt - totalPaid), null);
     }
 
     public async Task<CustomerPricingResponse?> GetPricingAsync(Guid customerId)
@@ -155,6 +193,6 @@ public class CustomerService(AppDbContext db) : ICustomerService
         return new CustomerDebtHistoryResponse(customerId, customer.Name, totalDebt - totalPaid, debtTxns, payments);
     }
 
-    private static CustomerResponse MapToResponse(Customer c) =>
-        new(c.Id, c.Name, c.Phone, c.Address, c.IsActive, c.CreatedAt);
+    private static CustomerResponse MapToResponse(Customer c, decimal outstandingDebt) =>
+        new(c.Id, c.Name, c.Phone, c.Address, c.IsActive, c.CreatedAt, outstandingDebt);
 }

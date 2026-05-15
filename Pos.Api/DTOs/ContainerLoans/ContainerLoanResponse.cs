@@ -9,6 +9,7 @@ public record ContainerLoanResponse(
     string ProductName,
     string ProductUnit,
     int Quantity,
+    string? Note,
     string CreatedByName,
     DateTime CreatedAt
 );

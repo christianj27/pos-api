@@ -7,6 +7,7 @@ public class ContainerLoan
     public Guid CustomerId { get; set; }
     public Guid ProductId { get; set; }
     public int Quantity { get; set; }
+    public string? Note { get; set; }
     public Guid CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

@@ -25,7 +25,7 @@ public class AuthService(AppDbContext db, IConfiguration config) : IAuthService
         var rawRefresh = GenerateRawToken();
         await PersistRefreshTokenAsync(user.Id, rawRefresh);
 
-        return (new LoginResponse(accessToken, user.Role.ToString().ToLower(), user.Id, user.Name), rawRefresh);
+        return (new LoginResponse(accessToken, user.Role.ToString().ToLower(), user.Id, user.Name, user.Username), rawRefresh);
     }
 
     public async Task<(RefreshResponse Response, string RawRefreshToken)?> RefreshAsync(string rawToken)

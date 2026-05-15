@@ -15,7 +15,7 @@ public class AuthControllerTests
     private static readonly Guid UserId = Guid.NewGuid();
 
     private static readonly LoginResponse SampleLoginResponse =
-        new("access-token", "owner", UserId, "Test Owner");
+        new("access-token", "owner", UserId, "Test Owner", "testowner");
 
     private static readonly RefreshResponse SampleRefreshResponse =
         new("new-access-token");

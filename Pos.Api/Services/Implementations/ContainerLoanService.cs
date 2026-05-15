@@ -25,7 +25,7 @@ public class ContainerLoanService(AppDbContext db) : IContainerLoanService
             .Select(cl => new ContainerLoanResponse(
                 cl.Id, cl.TransactionId, cl.CustomerId, cl.Customer.Name,
                 cl.ProductId, cl.Product.Name, cl.Product.Unit,
-                cl.Quantity, cl.Creator.Name, cl.CreatedAt))
+                cl.Quantity, cl.Note, cl.Creator.Name, cl.CreatedAt))
             .ToListAsync();
     }
 
@@ -48,6 +48,7 @@ public class ContainerLoanService(AppDbContext db) : IContainerLoanService
             CustomerId = request.CustomerId,
             ProductId = request.ProductId,
             Quantity = request.Quantity,
+            Note = request.Notes,
             CreatedBy = createdBy
         };
         db.ContainerLoans.Add(loan);
@@ -57,6 +58,6 @@ public class ContainerLoanService(AppDbContext db) : IContainerLoanService
         return (new ContainerLoanResponse(
             loan.Id, null, customer.Id, customer.Name,
             product.Id, product.Name, product.Unit,
-            loan.Quantity, creator!.Name, loan.CreatedAt), null);
+            loan.Quantity, loan.Note, creator!.Name, loan.CreatedAt), null);
     }
 }

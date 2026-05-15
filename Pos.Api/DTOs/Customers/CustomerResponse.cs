@@ -6,5 +6,6 @@ public record CustomerResponse(
     string? Phone,
     string? Address,
     bool IsActive,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    decimal OutstandingDebt
 );

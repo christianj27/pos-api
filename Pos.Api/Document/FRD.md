@@ -1098,6 +1098,11 @@ All monetary values in IDR via `formatCurrency.js`:
 - Tapping navigates to `/debt-payments/:customer_id`.
 - A right-pointing chevron icon is displayed at the row's trailing edge.
 
+**FR-DBT-006 — Catat Pembayaran modal — payment method field**
+- The "Catat Pembayaran" create-payment modal (used on both `/debt-payments` and `/debt-payments/:customerId`) must include a **Metode Pembayaran** selector with three options: **Tunai** (`cash`), **Transfer** (`transfer`), **QRIS** (`qris`). Default: Tunai.
+- The selected method is sent to `POST /api/debt-payments` as the required `method` field.
+- The Catatan field remains optional.
+
 ---
 
 ## 20. Cash Flow Page (FR-CSH)
