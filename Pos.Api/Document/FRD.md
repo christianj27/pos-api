@@ -321,7 +321,7 @@ A kurir can read their own assigned vehicle location. They cannot see other vehi
 The system shall display all products with: name, category, production type, type (air/gas), unit, base price, active status.
 
 **FR-PRD-002 — Create product**
-The system shall allow the Owner to create a product with: name, category (`simple` / `refillable`), production_type (`purchased` / `self_produced`, only for `refillable`), type (`air` / `gas`), unit (selected from controlled vocabulary — see VAL-PRD-005), and base price.
+The system shall allow the Owner to create a product with: name, category (`simple` / `refillable`), production_type (`purchased` / `selfproduced`, only for `refillable`), type (`air` / `gas`), unit (selected from controlled vocabulary — see VAL-PRD-005), and base price.
 
 **FR-PRD-003 — Edit product**
 The system shall allow the Owner to edit any product field. Editing base price does not affect historical transaction records (price is snapshotted).
@@ -338,7 +338,7 @@ Effective unit price = `CustomerPricing.custom_price` (if exists for the custome
 |---|---|---|---|
 | VAL-PRD-001 | `name` | Required, max 100 chars | `"Nama produk wajib diisi."` / `"Nama produk tidak boleh lebih dari 100 karakter."` |
 | VAL-PRD-002 | `category` | Required, `simple` or `refillable` | `"Kategori produk wajib dipilih."` |
-| VAL-PRD-003 | `production_type` | Required when `category = refillable`; `purchased` or `self_produced` | `"Tipe produksi wajib dipilih untuk produk refillable."` |
+| VAL-PRD-003 | `production_type` | Required when `category = refillable`; `purchased` or `selfproduced` | `"Tipe produksi wajib dipilih untuk produk refillable."` |
 | VAL-PRD-004 | `type` | Required, `air` or `gas` | `"Jenis produk wajib dipilih."` |
 | VAL-PRD-005 | `unit` | Required; must be one of the controlled vocabulary values: `galon`, `tabung 3kg`, `tabung 12kg`, `karton`, `dus`, `cup`, `botol`, `pcs` | `"Satuan wajib dipilih."` / `"Satuan tidak valid."` |
 | VAL-PRD-006 | `base_price` | Required, positive, max 15 digits with 2 dp | `"Harga dasar wajib diisi."` / `"Harga dasar harus berupa angka positif."` |
@@ -448,7 +448,7 @@ Owner records stock received into any active location (warehouse or vehicle):
 - `movement_type = 'receive'`, `to_location = any active location`, `from_location = null`
 - For `refillable` products: specify `container_status` (`filled` or `empty`) and quantity
 - For `simple` products: specify quantity only (`container_status = 'na'`)
-- **Does NOT deduct empty containers.** For in-house refill of `self_produced` products, use FR-STK-011 (production).
+- **Does NOT deduct empty containers.** For in-house refill of `selfproduced` products, use FR-STK-011 (production).
 - **Multi-product batch:** The system shall allow recording multiple products in a single receive operation. Destination location and optional batch note are shared; each item specifies its own product, container status, quantity, and optional purchase cost. The frontend submits all items via `POST /api/stock/movements/bulk`.
 
 **FR-STK-005 — Truck loading (warehouse → vehicle)**
@@ -485,11 +485,12 @@ Owner **or Kurir** records a vendor exchange (taking empties to vendor, receivin
 - No new DB enum value — vendor exchange is purely a UI/API concept
 
 **FR-STK-011 — In-house production refill**
-Owner records an in-house refill for `self_produced` refillable products (e.g. filling Galon Isi Ulang from the store's own water source):
+Owner records an in-house refill for `selfproduced` refillable products (e.g. filling Galon Isi Ulang from the store's own water source):
 - Endpoint: `POST /api/stock/production`
-- Accepts: `product_id` (must be `refillable` + `self_produced`), `location_id`, `quantity`, optional `production_cost`, optional `notes`
-- Atomically: decrements `quantity_empty` by `quantity`; increments `quantity_filled` by `quantity`
-- Creates a `StockMovement` record with `movement_type = 'production'`, `from_location = location_id`, `to_location = location_id`
+- Accepts: `product_id` (must be `refillable` + `selfproduced`), `location_id`, `quantity`, optional `production_cost`, optional `notes`
+- Atomically creates two `StockMovement` records:
+  1. **Empty consumed** — `movement_type = 'production'`, `container_status = 'empty'`, `from_location = location_id`, `to_location = null`, `purchase_cost = production_cost`; decrements `quantity_empty` by `quantity`
+  2. **Filled produced** — `movement_type = 'production'`, `container_status = 'filled'`, `from_location = null`, `to_location = location_id`; increments `quantity_filled` by `quantity`
 - Available to Owner and Kasir
 
 **FR-STK-012 — Date filter for stock movement history**
@@ -517,7 +518,7 @@ The server creates two `StockMovements` records per item atomically (same as sin
 | VAL-STK-006 | `from_location_id` | Required for `transfer`, `dispatch`, `defect` | `"Lokasi asal wajib dipilih."` |
 | VAL-STK-007 | `note` | Required for `defect`; optional otherwise, max 255 chars | `"Catatan wajib diisi untuk barang cacat."` / `"Catatan tidak boleh lebih dari 255 karakter."` |
 | VAL-STK-008 | `purchase_cost` | Required for vendor exchange (`POST /api/stock/vendor-exchange`); must be a positive decimal | `"Biaya pembelian wajib diisi untuk pertukaran vendor."` / `"Biaya pembelian harus berupa angka positif."` |
-| VAL-STK-009 | `product_id` (production) | Must be a `refillable` product with `production_type = 'self_produced'` | `"Produksi hanya berlaku untuk produk isi ulang produksi sendiri."` |
+| VAL-STK-009 | `product_id` (production) | Must be a `refillable` product with `production_type = 'selfproduced'` | `"Produksi hanya berlaku untuk produk isi ulang produksi sendiri."` |
 | VAL-STK-010 | `quantity` (production) | Required, positive integer, min 1 | `"Jumlah produksi wajib diisi dan minimal 1."` |
 
 ### 9.4 UI Behavior
@@ -963,7 +964,7 @@ The dashboard shall include a **"Hutang Pelanggan"** section positioned below Tr
 | Location | `assigned_to` | UUID | active user (owner or kurir); required if vehicle | Conditional |
 | Product | `name` | VARCHAR(100) | max 100 | Yes |
 | Product | `category` | ENUM | `simple`, `refillable` | Yes |
-| Product | `production_type` | ENUM | `purchased`, `self_produced`; required if refillable | Conditional |
+| Product | `production_type` | ENUM | `purchased`, `selfproduced`; required if refillable | Conditional |
 | Product | `type` | ENUM | `air`, `gas` | Yes |
 | Product | `unit` | VARCHAR(20) | max 20 | Yes |
 | Product | `base_price` | DECIMAL(15,2) | positive | Yes |

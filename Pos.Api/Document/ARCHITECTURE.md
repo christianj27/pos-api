@@ -120,7 +120,7 @@ Products
   id              UUID  PK
   name            VARCHAR(100)
   category        ENUM('simple', 'refillable')
-  production_type ENUM('purchased', 'self_produced')  -- nullable; required if refillable
+  production_type ENUM('purchased', 'selfproduced')  -- nullable; required if refillable
   type            ENUM('air', 'gas')
   unit            VARCHAR(20)   -- e.g. "galon", "tabung", "karton"
   base_price      DECIMAL(15,2)
@@ -280,7 +280,7 @@ POST   /api/stock/vendor-exchange      -- atomic vendor exchange: empties out + 
 POST   /api/stock/vendor-exchange/bulk -- exchange containers with vendor for multiple products in one operation (owner/kurir)
                                    -- body: { location_id, notes?, items: [{ product_id, empty_quantity, filled_quantity, purchase_cost }] }
                                    -- server creates two StockMovements records per item atomically (same as vendor-exchange but batched)
-POST   /api/stock/production       -- in-house refill (owner and kasir): atomically empty -= qty, filled += qty; product must be refillable + self_produced
+POST   /api/stock/production       -- in-house refill (owner and kasir): atomically empty -= qty, filled += qty; product must be refillable + selfproduced
 
 # Delivery Assignments
 GET    /api/assignments             -- owner/kasir: all; kurir: own only

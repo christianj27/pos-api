@@ -287,6 +287,7 @@ public class StockService(AppDbContext db) : IStockService
         if (product.Category != ProductCategory.Refillable || product.ProductionType != ProductionType.SelfProduced)
             return (false, "Produksi hanya berlaku untuk produk isi ulang produksi sendiri.");
 
+        // Empty containers are consumed (outbound only)
         db.StockMovements.Add(new StockMovement
         {
             ProductId = request.ProductId,
@@ -294,20 +295,20 @@ public class StockService(AppDbContext db) : IStockService
             ContainerStatus = ContainerStatus.Empty,
             Quantity = request.Quantity,
             FromLocationId = request.LocationId,
-            ToLocationId = request.LocationId,
+            ToLocationId = null,
             PurchaseCost = request.ProductionCost,
             Note = request.Note,
             CreatedBy = createdBy
         });
 
-        // Also add the filled output record
+        // Filled containers are produced (inbound only)
         db.StockMovements.Add(new StockMovement
         {
             ProductId = request.ProductId,
             MovementType = MovementType.Production,
             ContainerStatus = ContainerStatus.Filled,
             Quantity = request.Quantity,
-            FromLocationId = request.LocationId,
+            FromLocationId = null,
             ToLocationId = request.LocationId,
             Note = request.Note,
             CreatedBy = createdBy

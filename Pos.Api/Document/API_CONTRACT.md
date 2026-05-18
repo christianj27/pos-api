@@ -271,7 +271,7 @@ Returns the authenticated user's own record only.
 | `id` | string (UUID) | — |
 | `name` | string | — |
 | `category` | string | `simple` \| `refillable` |
-| `production_type` | string \| null | `purchased` \| `self_produced`; only present for `refillable` products |
+| `production_type` | string \| null | `purchased` \| `selfproduced`; only present for `refillable` products |
 | `type` | string | `air` \| `gas` |
 | `unit` | string | e.g. `galon`, `tabung`, `karton` |
 | `base_price` | number | Rupiah |
@@ -655,12 +655,12 @@ _(Vendor exchange for multiple products in one atomic operation)_
 **Auth**: Owner or Kasir  
 _(In-house refill: atomically decrements empty stock and increments filled stock)_
 
-> Product must have `category = refillable` and `production_type = self_produced`.
+> Product must have `category = refillable` and `production_type = selfproduced`.
 
 **Request Body**
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `product_id` | string (UUID) | ✅ | Must be `refillable` and `self_produced` |
+| `product_id` | string (UUID) | ✅ | Must be `refillable` and `selfproduced` |
 | `location_id` | string (UUID) | ✅ | Location where production occurs |
 | `quantity` | number | ✅ | Number of containers to refill; positive integer |
 | `production_cost` | number | ❌ | Total cost of this production run |
