@@ -13,7 +13,7 @@ public class StockService(AppDbContext db) : IStockService
     {
         var locQuery = db.Locations.Where(l => l.IsActive);
         if (locationId.HasValue) locQuery = locQuery.Where(l => l.Id == locationId.Value);
-        var locations = await locQuery.ToListAsync();
+        var locations = await locQuery.OrderByDescending(o => o.Type).ToListAsync();
 
         var products = await db.Products.Where(p => p.IsActive).ToListAsync();
 
