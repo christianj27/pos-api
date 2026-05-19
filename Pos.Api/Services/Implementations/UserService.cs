@@ -11,7 +11,8 @@ public class UserService(AppDbContext db) : IUserService
 {
     public async Task<IEnumerable<UserResponse>> GetAllAsync() =>
         await db.Users
-            .OrderBy(u => u.Name)
+            .OrderBy(u => u.IsActive ? 0 : 1)
+            .ThenBy(u => u.Name)
             .Select(u => MapToResponse(u))
             .ToListAsync();
 

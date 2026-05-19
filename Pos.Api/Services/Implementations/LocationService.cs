@@ -12,7 +12,8 @@ public class LocationService(AppDbContext db) : ILocationService
     public async Task<IEnumerable<LocationResponse>> GetAllAsync() =>
         await db.Locations
             .Include(l => l.AssignedUser)
-            .OrderBy(l => l.Name)
+            .OrderBy(l => l.IsActive ? 0 : 1)
+            .ThenBy(l => l.Name)
             .Select(l => MapToResponse(l))
             .ToListAsync();
 

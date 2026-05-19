@@ -13,7 +13,7 @@ public class CustomerService(AppDbContext db) : ICustomerService
         var q = db.Customers.AsQueryable();
         if (activeOnly) q = q.Where(c => c.IsActive);
 
-        var customers = await q.OrderBy(c => c.Name).ToListAsync();
+        var customers = await q.OrderBy(c => c.IsActive ? 0 : 1).ThenBy(c => c.Name).ToListAsync();
         var customerIds = customers.Select(c => c.Id).ToList();
 
         var totalDebts = await db.Transactions

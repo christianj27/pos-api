@@ -18,7 +18,7 @@ public class ProductService(AppDbContext db) : IProductService
     {
         var q = db.Products.AsQueryable();
         if (activeOnly) q = q.Where(p => p.IsActive);
-        return await q.OrderBy(p => p.Name).Select(p => MapToResponse(p)).ToListAsync();
+        return await q.OrderBy(p => p.IsActive ? 0 : 1).ThenBy(p => p.Name).Select(p => MapToResponse(p)).ToListAsync();
     }
 
     public async Task<ProductResponse?> GetByIdAsync(Guid id)
