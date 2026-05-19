@@ -43,7 +43,7 @@ public class StockController(IStockService stockService) : ControllerBase
     }
 
     [HttpPost("transfer")]
-    [Authorize(Policy = "OwnerOrKurir")]
+    [Authorize(Policy = "OwnerOrKasir")]
     public async Task<IActionResult> Transfer([FromBody] TransferRequest request)
     {
         var userId = GetUserId();
@@ -53,7 +53,7 @@ public class StockController(IStockService stockService) : ControllerBase
     }
 
     [HttpPost("transfer/bulk")]
-    [Authorize(Policy = "OwnerOrKurir")]
+    [Authorize(Policy = "OwnerOrKasir")]
     public async Task<IActionResult> BulkTransfer([FromBody] BulkTransferRequest request)
     {
         var userId = GetUserId();
@@ -63,7 +63,7 @@ public class StockController(IStockService stockService) : ControllerBase
     }
 
     [HttpPost("vendor-exchange")]
-    [Authorize(Policy = "OwnerOrKurir")]
+    [Authorize(Policy = "OwnerOnly")]
     public async Task<IActionResult> VendorExchange([FromBody] VendorExchangeRequest request)
     {
         var userId = GetUserId();
@@ -73,7 +73,7 @@ public class StockController(IStockService stockService) : ControllerBase
     }
 
     [HttpPost("vendor-exchange/bulk")]
-    [Authorize(Policy = "OwnerOrKurir")]
+    [Authorize(Policy = "OwnerOnly")]
     public async Task<IActionResult> BulkVendorExchange([FromBody] BulkVendorExchangeRequest request)
     {
         var userId = GetUserId();
