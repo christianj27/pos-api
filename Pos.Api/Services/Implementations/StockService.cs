@@ -72,6 +72,7 @@ public class StockService(AppDbContext db) : IStockService
             .Include(m => m.FromLocation)
             .Include(m => m.ToLocation)
             .Include(m => m.Creator)
+            .Include(m => m.Transaction!).ThenInclude(t => t.Customer)
             .Where(m => m.CreatedAt >= start && m.CreatedAt < end)
             .OrderByDescending(m => m.CreatedAt);
 
@@ -84,13 +85,17 @@ public class StockService(AppDbContext db) : IStockService
                            m.MovementType != MovementType.Receive ||
                            m.PurchaseCost == null;
 
+            var customerName = m.MovementType == MovementType.Dispatch
+                ? m.Transaction?.Customer?.Name
+                : null;
+
             return new StockMovementResponse(
                 m.Id, m.ProductId, m.Product.Name,
                 m.MovementType.ToString().ToLower(), m.ContainerStatus.ToString().ToLower(),
                 m.Quantity, m.FromLocationId, m.FromLocation?.Name,
                 m.ToLocationId, m.ToLocation?.Name,
                 showCost ? m.PurchaseCost : null,
-                m.Note, m.Creator.Name, m.CreatedAt);
+                m.Note, m.Creator.Name, m.CreatedAt, customerName);
         });
     }
 

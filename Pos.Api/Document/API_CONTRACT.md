@@ -530,6 +530,7 @@ Returns aggregated (net) container balances per product, not a raw event log.
 | `note` | string \| null | — |
 | `created_by_name` | string | — |
 | `created_at` | string (ISO 8601) | — |
+| `customer_name` | string \| null | Customer name for dispatch movements; null for all other types |
 
 > ⚠️ **Known gap #6 (resolved)**: Frontend `StockMovement.note` now matches backend `note` field.
 
@@ -675,6 +676,11 @@ _(In-house refill: atomically decrements empty stock and increments filled stock
 ### GET /api/assignments
 **Auth**: All roles  
 _(Owner/Kasir see all assignments; Kurir sees only their own)_
+
+**Query Params**
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `date` | string (YYYY-MM-DD) | ❌ | WIB date filter; omit for all dates |
 
 **Response `200`** — array of Assignment objects (sorted newest first).
 

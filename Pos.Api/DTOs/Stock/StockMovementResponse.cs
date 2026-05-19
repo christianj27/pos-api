@@ -14,5 +14,6 @@ public record StockMovementResponse(
     decimal? PurchaseCost,
     string? Note,
     string CreatedByName,
-    DateTime CreatedAt
+    DateTime CreatedAt,
+    string? CustomerName
 );
