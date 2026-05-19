@@ -32,11 +32,11 @@ public class ProductsController(IProductService productService) : ControllerBase
         return Ok(product);
     }
 
-    [HttpDelete("{id:guid}")]
+    [HttpPatch("{id:guid}")]
     [Authorize(Policy = "OwnerOnly")]
-    public async Task<IActionResult> Deactivate(Guid id)
+    public async Task<IActionResult> ToggleActive(Guid id)
     {
-        var (success, error) = await productService.DeactivateAsync(id);
+        var (success, error) = await productService.ToggleActiveAsync(id);
         if (!success) return BadRequest(new { message = error });
         return NoContent();
     }

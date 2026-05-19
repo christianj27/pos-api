@@ -97,11 +97,11 @@ public class ProductService(AppDbContext db) : IProductService
         return (MapToResponse(product), null);
     }
 
-    public async Task<(bool Success, string? Error)> DeactivateAsync(Guid id)
+    public async Task<(bool Success, string? Error)> ToggleActiveAsync(Guid id)
     {
         var product = await db.Products.FindAsync(id);
         if (product is null) return (false, "Product not found.");
-        product.IsActive = false;
+        product.IsActive = !product.IsActive;
         await db.SaveChangesAsync();
         return (true, null);
     }

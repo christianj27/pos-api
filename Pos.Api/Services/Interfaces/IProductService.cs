@@ -8,5 +8,5 @@ public interface IProductService
     Task<ProductResponse?> GetByIdAsync(Guid id);
     Task<(ProductResponse? Product, string? Error)> CreateAsync(CreateProductRequest request);
     Task<(ProductResponse? Product, string? Error)> UpdateAsync(Guid id, UpdateProductRequest request);
-    Task<(bool Success, string? Error)> DeactivateAsync(Guid id);
+    Task<(bool Success, string? Error)> ToggleActiveAsync(Guid id);
 }
