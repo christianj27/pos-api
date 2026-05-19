@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using Pos.Api.Data;
 using Pos.Api.Data.Enums;
 using Pos.Api.DTOs.Dashboard;
-using Pos.Api.DTOs.Transactions;
 using Pos.Api.Services.Interfaces;
 
 namespace Pos.Api.Services.Implementations;
@@ -17,6 +16,9 @@ public class DashboardService(AppDbContext db) : IDashboardService
         var todayRevenue = await db.Transactions
             .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= start && t.CreatedAt < end)
             .SumAsync(t => t.PaidAmount);
+
+        var todayTransactions = await db.Transactions
+            .CountAsync(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= start && t.CreatedAt < end);
 
         var todayPurchaseCost = await db.StockMovements
             .Where(m => m.PurchaseCost != null && m.CreatedAt >= start && m.CreatedAt < end)
@@ -33,18 +35,16 @@ public class DashboardService(AppDbContext db) : IDashboardService
             .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= prevStart && t.CreatedAt < prevEnd)
             .SumAsync(t => t.PaidAmount);
 
-        // Low stock (warehouse only, active products - 5)
+        // Low stock (warehouse only, active products <= 5)
         var warehouseLoc = await db.Locations.FirstOrDefaultAsync(l => l.Type == LocationType.Warehouse && l.IsActive);
         int lowStockCount = 0;
         if (warehouseLoc is not null)
         {
-            var levels = await GetWarehouseStockAsync(warehouseLoc.Id);
+            var levels = await GetWarehouseStockAsync(warehouseLoc.Id, warehouseLoc.Name);
             lowStockCount = levels.Count(s => (s.QuantityTotal ?? s.QuantityFilled ?? 0) <= 5);
         }
 
-        var stats = new DashboardStatCard(todayRevenue, todayPurchaseCost, todayDebtCollected, lowStockCount, prevRevenue);
-
-        // Weekly chart — 7 days ending on selected date
+        // Weekly chart -- 7 days ending on selected date
         var weeklyChart = new List<WeeklyChartEntry>();
         for (int i = 6; i >= 0; i--)
         {
@@ -65,26 +65,23 @@ public class DashboardService(AppDbContext db) : IDashboardService
             weeklyChart.Add(new WeeklyChartEntry(day.ToString("yyyy-MM-dd"), revenue, txCount, purchaseCost));
         }
 
-        // Recent transactions for selected date (10 most recent)
+        // Recent transactions for selected date (10 most recent) -- slim projection
         var recentTxns = await db.Transactions
-            .Include(t => t.Customer).Include(t => t.Staff).Include(t => t.Location)
-            .Include(t => t.Items).ThenInclude(i => i.Product)
+            .Include(t => t.Customer)
+            .Include(t => t.Staff)
             .Where(t => t.CreatedAt >= start && t.CreatedAt < end)
             .OrderByDescending(t => t.CreatedAt)
             .Take(10)
             .ToListAsync();
 
-        var recentResponses = recentTxns.Select(t => new TransactionResponse(
+        var recentResponses = recentTxns.Select(t => new RecentTransactionDashboardItem(
             t.Id, t.TransactionType.ToString().ToLower(), t.CustomerId, t.Customer?.Name,
-            t.StaffId, t.Staff.Name, t.LocationId, t.Location.Name,
-            t.Status.ToString().ToLower(), t.PaymentMethod.ToString().ToLower(),
-            t.TotalAmount, t.PaidAmount, t.DebtAmount, t.Notes, t.CreatedAt,
-            t.Items.Select(i => new TransactionItemResponse(i.Id, i.ProductId, i.Product.Name,
-                i.Product.Unit, i.Quantity, i.UnitPrice, i.Quantity * i.UnitPrice))));
+            t.Staff.Name, t.Status.ToString().ToLower(),
+            t.TotalAmount, t.PaidAmount, t.CreatedAt));
 
         // Warehouse stock (current state, not date-filtered)
         var warehouseStock = warehouseLoc is not null
-            ? await GetWarehouseStockAsync(warehouseLoc.Id)
+            ? await GetWarehouseStockAsync(warehouseLoc.Id, warehouseLoc.Name)
             : Enumerable.Empty<WarehouseStockItem>();
 
         // Customer debts (current state, sorted by debt desc)
@@ -104,10 +101,15 @@ public class DashboardService(AppDbContext db) : IDashboardService
         }
         customerDebts.Sort((a, b) => b.OutstandingDebt.CompareTo(a.OutstandingDebt));
 
-        return new DashboardResponse(stats, weeklyChart, recentResponses, warehouseStock, customerDebts);
+        var totalOutstandingDebt = customerDebts.Sum(d => d.OutstandingDebt);
+
+        return new DashboardResponse(
+            todayRevenue, todayTransactions, todayPurchaseCost, todayDebtCollected,
+            lowStockCount, totalOutstandingDebt, prevRevenue,
+            weeklyChart, recentResponses, warehouseStock, customerDebts);
     }
 
-    private async Task<IEnumerable<WarehouseStockItem>> GetWarehouseStockAsync(Guid warehouseId)
+    private async Task<IEnumerable<WarehouseStockItem>> GetWarehouseStockAsync(Guid warehouseId, string locationName)
     {
         var products = await db.Products.Where(p => p.IsActive).ToListAsync();
 
@@ -130,10 +132,12 @@ public class DashboardService(AppDbContext db) : IDashboardService
 
             if (p.Category == ProductCategory.Refillable)
                 return new WarehouseStockItem(p.Id, p.Name, p.Unit, p.Category.ToString().ToLower(),
+                    warehouseId, locationName,
                     In(ContainerStatus.Filled) - Out(ContainerStatus.Filled),
                     In(ContainerStatus.Empty) - Out(ContainerStatus.Empty), null);
 
             return new WarehouseStockItem(p.Id, p.Name, p.Unit, p.Category.ToString().ToLower(),
+                warehouseId, locationName,
                 null, null, In(ContainerStatus.Na) - Out(ContainerStatus.Na));
         });
     }
