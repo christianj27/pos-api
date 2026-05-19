@@ -12,11 +12,11 @@ namespace Pos.Api.Controllers;
 public class AssignmentsController(IAssignmentService assignmentService) : ControllerBase
 {
     [HttpGet]
-    public async Task<IActionResult> GetAll()
+    public async Task<IActionResult> GetAll([FromQuery] DateOnly? date = null)
     {
         var userId = GetUserId();
         var role = GetRole();
-        return Ok(await assignmentService.GetAllAsync(userId, role));
+        return Ok(await assignmentService.GetAllAsync(userId, role, date));
     }
 
     [HttpPost]

@@ -10,7 +10,7 @@ namespace Pos.Api.Services.Implementations;
 
 public class AssignmentService(AppDbContext db, ITransactionService transactionService) : IAssignmentService
 {
-    public async Task<IEnumerable<AssignmentResponse>> GetAllAsync(Guid userId, string role)
+    public async Task<IEnumerable<AssignmentResponse>> GetAllAsync(Guid userId, string role, DateOnly? date = null)
     {
         var q = db.DeliveryAssignments
             .Include(a => a.Kurir)
@@ -20,6 +20,12 @@ public class AssignmentService(AppDbContext db, ITransactionService transactionS
 
         if (role == "kurir")
             q = q.Where(a => a.KurirId == userId);
+
+        if (date.HasValue)
+        {
+            var (start, end) = WibTimeZone.GetUtcDayBounds(date.Value);
+            q = q.Where(a => a.CreatedAt >= start && a.CreatedAt < end);
+        }
 
         return await q
             .OrderByDescending(a => a.CreatedAt)
