@@ -51,3 +51,7 @@ migration.sql
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Environment-specific settings with secrets
+appsettings.Production.json
+appsettings.Development.json
