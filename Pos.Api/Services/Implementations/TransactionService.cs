@@ -249,7 +249,7 @@ public class TransactionService(AppDbContext db) : ITransactionService
             }
 
             // Reverse container loans (positive loans ? negative, container returns ? positive)
-            foreach (var loan in transaction.ContainerLoans)
+            foreach (var loan in transaction.ContainerLoans.ToList())
             {
                 db.ContainerLoans.Add(new ContainerLoan
                 {
