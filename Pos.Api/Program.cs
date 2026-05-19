@@ -100,10 +100,11 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("FrontendPolicy");
-if (!app.Environment.IsDevelopment())
-{
-    app.UseHttpsRedirection();
-}
+//TODO: Activate HTTPS in the hosting environment and remove this condition
+//if (!app.Environment.IsDevelopment())
+//{
+//    app.UseHttpsRedirection();
+//}
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
