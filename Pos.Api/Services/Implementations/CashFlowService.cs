@@ -25,15 +25,15 @@ public class CashFlowService(AppDbContext db) : ICashFlowService
             if (t.PaidAmount > 0)
             {
                 entries.Add(new CashFlowEntryResponse(
-                    t.Id, "cash_in", "sale_payment", t.PaidAmount,
-                    $"Penjualan – {t.Customer?.Name ?? "Tanpa Pelanggan"}",
+                    Guid.NewGuid(), t.Id, "cash_in", "sale_payment", t.PaidAmount,
+                    $"Penjualan ï¿½ {t.Customer?.Name ?? "Tanpa Pelanggan"}",
                     t.Id, t.Staff.Name, t.CreatedAt));
             }
             if (t.DebtAmount > 0)
             {
                 entries.Add(new CashFlowEntryResponse(
-                    t.Id, "new_debt", "debt_created", t.DebtAmount,
-                    $"Piutang Baru – {t.Customer?.Name ?? "Tanpa Pelanggan"}",
+                    Guid.NewGuid(), t.Id, "new_debt", "debt_created", t.DebtAmount,
+                    $"Piutang Baru ï¿½ {t.Customer?.Name ?? "Tanpa Pelanggan"}",
                     t.Id, t.Staff.Name, t.CreatedAt));
             }
         }
@@ -48,8 +48,8 @@ public class CashFlowService(AppDbContext db) : ICashFlowService
         foreach (var dp in debtPayments)
         {
             entries.Add(new CashFlowEntryResponse(
-                dp.Id, "cash_in", "debt_payment", dp.Amount,
-                $"Pembayaran Hutang – {dp.Customer.Name}",
+                Guid.NewGuid(), dp.Id, "cash_in", "debt_payment", dp.Amount,
+                $"Pembayaran Hutang ï¿½ {dp.Customer.Name}",
                 dp.Id, dp.Creator.Name, dp.CreatedAt));
         }
 
@@ -63,8 +63,8 @@ public class CashFlowService(AppDbContext db) : ICashFlowService
         foreach (var m in purchases)
         {
             entries.Add(new CashFlowEntryResponse(
-                m.Id, "cash_out", "stock_purchase", m.PurchaseCost!.Value,
-                $"Pembelian Stok – {m.Product.Name}",
+                Guid.NewGuid(), m.Id, "cash_out", "stock_purchase", m.PurchaseCost!.Value,
+                $"Pembelian Stok ï¿½ {m.Product.Name}",
                 m.Id, m.Creator.Name, m.CreatedAt));
         }
 
