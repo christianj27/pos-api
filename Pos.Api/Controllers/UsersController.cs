@@ -8,7 +8,7 @@ namespace Pos.Api.Controllers;
 
 [ApiController]
 [Route("api/users")]
-[Authorize(Policy = "OwnerOnly")]
+[Authorize(Policy = "OwnerOrKasir")]
 public class UsersController(IUserService userService) : ControllerBase
 {
     [HttpGet]
