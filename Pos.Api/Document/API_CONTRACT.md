@@ -611,6 +611,8 @@ _(Transfer multiple products between the same source/destination atomically)_
 
 **Response `201`** — array of StockMovement objects (one per item).
 
+> ⚠️ **Stock levels**: This endpoint does not enforce minimum stock. Transfers that would result in negative stock at the source location are accepted by the API. The frontend displays a soft warning before submitting (see FR-STK-015 in FRD.md).
+
 ---
 
 ### POST /api/stock/vendor-exchange
@@ -824,6 +826,8 @@ _(Owner sees all; Kurir and Kasir see only their own transactions)_
 | `debt_payment_amount` | number | ❌ | Settle pre-existing debt; requires `customer_id` |
 
 **Response `201`** — Transaction object (list shape, as documented above).
+
+> ⚠️ **Stock levels**: This endpoint does not enforce minimum stock. Transactions that would result in negative stock at the source location are accepted by the API. The frontend displays a soft warning before submitting (see FR-TXN-021 in FRD.md).
 
 ---
 

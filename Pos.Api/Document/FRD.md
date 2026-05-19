@@ -7,6 +7,7 @@
 
 | Version | Date | Author | Changes |
 |---|---|---|---------|
+| 3.6 | May 19, 2026 | — | Two improvements: (1) FR-STK-015 — Negative stock warning for Transfer tab: frontend checks transfer quantities against current stock levels at the source location; if any item would result in negative stock, a confirmation dialog (soft warning) is shown before submitting — user may still proceed; (2) FR-TXN-021 — Negative stock warning on transaction creation: same pattern applied in Langkah 3 "Kirim Transaksi"; frontend checks each cart item against stock levels at the selected location; applies to both direct creation and Kurir fulfillment flows. |
 | 3.5 | May 19, 2026 | — | Three improvements: (1) FR-STK-014 — Stock movement Riwayat tab now shows customer name instead of empty destination for dispatch movements (backend includes `customer_name` from Transaction.Customer; `GET /api/stock/movements` response adds `customer_name` field); (2) FR-TXN-015 updated — Date filter is now shared across all tabs including Penugasan; `GET /api/assignments` accepts optional `date` query param (YYYY-MM-DD WIB); Penugasan tab uses the same `selectedDate` state as the transaction list; (3) FR-MST-005/006/007 — Aktifkan button added to Customer, Location, and Product management pages allowing reactivation of inactive records (Owner only; warehouses excluded). |
 | 3.4 | May 19, 2026 | — | Three improvements: (1) FR-STK-014 — Stock movement dispatch shows customer name in route (from→customer); (2) FR-TXN-015 — `GET /api/assignments` date filter added; Penugasan tab gets its own date filter UI; (3) FR-MST-005/006/007 — Aktifkan (reactivation) button for Customer, Location, Product pages. |: Owner/Kasir create task assignments for Kurir (zero stock side effects); Penugasan tab added to Transactions page (Kurir defaults to this tab); 2-step assignment creation overlay (Step 1: select Kurir + Customer; Step 2: select products + notes); Kurir processes via fulfillment overlay → creates delivery transaction; cancel confirm dialog for assignments; `assignmentService.ts` + mock seed records added; (2) Stock tab permission changes — Kurir: levels + movements only; Kasir: levels + movements + transfer + production; FR-STK-011 (production) expanded from Owner-only to Owner + Kasir; (3) FR-STK-012 UI — purchase cost hidden for `vendor_exchange` movements from Kurir and Kasir roles in the Riwayat tab (purchase cost is owner-only business information; all other movement types unaffected). |
 | 3.2 | May 10, 2026 | — | Four changes: (1) Route renamed from `/settings` to `/lainnya` throughout code and live spec; updated FR-SET-001, FR-PRF §5.4 UI logout note, FR-CSH-001 back button; (2) Lainnya bottom nav icon changed from gear (`SettingsIcon`) to 2×2 grid icon (`LainnyaIcon` — more appropriate for a "more/others" hub menu); (3) DebtPayments tabs restyled from underline to pill pattern matching StockPage/TransactionsPage convention; (4) Mock debt payment seed data added for 2026-05-10 (debt-4, debt-5, debt-6) so Riwayat tab shows data on default today filter. |
@@ -507,6 +508,9 @@ The Vendor Exchange tab shall support submitting multiple products in a single o
 
 The server creates two `StockMovements` records per item atomically (same as single-product `POST /api/stock/vendor-exchange`).
 
+**FR-STK-015 — Negative stock warning for Transfer tab**
+Before submitting a transfer, the frontend checks each item's requested quantity against the current stock level at the source location (`from_location_id`). For simple products, `quantity_total` is used; for refillable products, `quantity_filled` (if `container_status = filled`) or `quantity_empty` (if `container_status = empty`) is used. If any item would result in negative stock (available − requested < 0), a `ConfirmDialog` is displayed listing the affected products with their available and requested quantities. The user may confirm to proceed anyway (soft warning — the API does not enforce a minimum) or cancel to revise the form. The check runs on every submit attempt and uses the `levels` data already loaded on the Stock page.
+
 ### 9.3 Validation Rules
 
 | ID | Field | Rule | Error Message |
@@ -676,6 +680,9 @@ Owner and Kasir can cancel a pending assignment via a confirm dialog. No stock e
 
 **FR-TXN-020 — Assignment status model**
 `DeliveryAssignmentStatus` has three values: `pending`, `fulfilled`, `cancelled`. Only `pending` assignments can be processed or cancelled.
+
+**FR-TXN-021 — Negative stock warning on transaction creation**
+Before submitting in Langkah 3, the frontend checks each cart item's quantity against the current stock level at the selected `location_id`. For refillable products, `quantity_filled` is used (transactions always dispatch filled stock); for simple products, `quantity_total` is used. If any item would result in negative stock (available − quantity < 0), a `ConfirmDialog` is shown with the list of affected products. The user may confirm to proceed or cancel. This warning applies to both regular transaction creation and Kurir fulfillment of a delivery assignment. Stock levels are loaded in the page's `load()` function alongside other data.
 
 ### 10.3 Validation Rules
 

@@ -26,14 +26,14 @@ public class CashFlowService(AppDbContext db) : ICashFlowService
             {
                 entries.Add(new CashFlowEntryResponse(
                     Guid.NewGuid(), t.Id, "cash_in", "sale_payment", t.PaidAmount,
-                    $"Penjualan � {t.Customer?.Name ?? "Tanpa Pelanggan"}",
+                    $"Penjualan - {t.Customer?.Name ?? "Tanpa Pelanggan"}",
                     t.Id, t.Staff.Name, t.CreatedAt));
             }
             if (t.DebtAmount > 0)
             {
                 entries.Add(new CashFlowEntryResponse(
                     Guid.NewGuid(), t.Id, "new_debt", "debt_created", t.DebtAmount,
-                    $"Piutang Baru � {t.Customer?.Name ?? "Tanpa Pelanggan"}",
+                    $"Piutang Baru - {t.Customer?.Name ?? "Tanpa Pelanggan"}",
                     t.Id, t.Staff.Name, t.CreatedAt));
             }
         }
@@ -49,7 +49,7 @@ public class CashFlowService(AppDbContext db) : ICashFlowService
         {
             entries.Add(new CashFlowEntryResponse(
                 Guid.NewGuid(), dp.Id, "cash_in", "debt_payment", dp.Amount,
-                $"Pembayaran Hutang � {dp.Customer.Name}",
+                $"Pembayaran Hutang - {dp.Customer.Name}",
                 dp.Id, dp.Creator.Name, dp.CreatedAt));
         }
 
@@ -64,7 +64,7 @@ public class CashFlowService(AppDbContext db) : ICashFlowService
         {
             entries.Add(new CashFlowEntryResponse(
                 Guid.NewGuid(), m.Id, "cash_out", "stock_purchase", m.PurchaseCost!.Value,
-                $"Pembelian Stok � {m.Product.Name}",
+                $"Pembelian Stok - {m.Product.Name}",
                 m.Id, m.Creator.Name, m.CreatedAt));
         }
 
