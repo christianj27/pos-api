@@ -99,7 +99,13 @@ public class StockService(AppDbContext db) : IStockService
         if (!Enum.TryParse<MovementType>(request.MovementType, ignoreCase: true, out var movType))
             return (false, "Tipe pergerakan wajib dipilih.");
 
-        if (!Enum.TryParse<ContainerStatus>(request.ContainerStatus, ignoreCase: true, out var status))
+        var product = await db.Products.FindAsync(request.ProductId);
+        if (product is null) return (false, "Produk tidak ditemukan.");
+
+        ContainerStatus status;
+        if (product.Category == ProductCategory.Simple)
+            status = ContainerStatus.Na;
+        else if (!Enum.TryParse<ContainerStatus>(request.ContainerStatus, ignoreCase: true, out status))
             return (false, "Status kontainer wajib dipilih.");
 
         if (movType == MovementType.Defect && string.IsNullOrWhiteSpace(request.Note))
@@ -127,9 +133,19 @@ public class StockService(AppDbContext db) : IStockService
         if (!Enum.TryParse<MovementType>(request.MovementType, ignoreCase: true, out var movType))
             return (false, "Tipe pergerakan wajib dipilih.");
 
+        var productIds = request.Items.Select(i => i.ProductId).Distinct().ToList();
+        var simpleProductIds = (await db.Products
+            .Where(p => productIds.Contains(p.Id) && p.Category == ProductCategory.Simple)
+            .Select(p => p.Id)
+            .ToListAsync())
+            .ToHashSet();
+
         foreach (var item in request.Items)
         {
-            if (!Enum.TryParse<ContainerStatus>(item.ContainerStatus, ignoreCase: true, out var status))
+            ContainerStatus status;
+            if (simpleProductIds.Contains(item.ProductId))
+                status = ContainerStatus.Na;
+            else if (!Enum.TryParse<ContainerStatus>(item.ContainerStatus, ignoreCase: true, out status))
                 return (false, "Status kontainer wajib dipilih.");
 
             db.StockMovements.Add(new StockMovement
@@ -151,7 +167,13 @@ public class StockService(AppDbContext db) : IStockService
 
     public async Task<(bool Success, string? Error)> TransferAsync(TransferRequest request, Guid createdBy)
     {
-        if (!Enum.TryParse<ContainerStatus>(request.ContainerStatus, ignoreCase: true, out var status))
+        var product = await db.Products.FindAsync(request.ProductId);
+        if (product is null) return (false, "Produk tidak ditemukan.");
+
+        ContainerStatus status;
+        if (product.Category == ProductCategory.Simple)
+            status = ContainerStatus.Na;
+        else if (!Enum.TryParse<ContainerStatus>(request.ContainerStatus, ignoreCase: true, out status))
             return (false, "Status kontainer wajib dipilih.");
 
         db.StockMovements.Add(new StockMovement
@@ -172,9 +194,19 @@ public class StockService(AppDbContext db) : IStockService
 
     public async Task<(bool Success, string? Error)> BulkTransferAsync(BulkTransferRequest request, Guid createdBy)
     {
+        var productIds = request.Items.Select(i => i.ProductId).Distinct().ToList();
+        var simpleProductIds = (await db.Products
+            .Where(p => productIds.Contains(p.Id) && p.Category == ProductCategory.Simple)
+            .Select(p => p.Id)
+            .ToListAsync())
+            .ToHashSet();
+
         foreach (var item in request.Items)
         {
-            if (!Enum.TryParse<ContainerStatus>(item.ContainerStatus, ignoreCase: true, out var status))
+            ContainerStatus status;
+            if (simpleProductIds.Contains(item.ProductId))
+                status = ContainerStatus.Na;
+            else if (!Enum.TryParse<ContainerStatus>(item.ContainerStatus, ignoreCase: true, out status))
                 return (false, "Status kontainer wajib dipilih.");
 
             db.StockMovements.Add(new StockMovement
