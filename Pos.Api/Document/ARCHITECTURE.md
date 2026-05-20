@@ -133,6 +133,7 @@ Customers
   phone           VARCHAR(20)
   address         TEXT
   is_active       BOOLEAN
+  initial_debt    DECIMAL(15,2)  DEFAULT 0   -- opening balance from paper records
   created_at      TIMESTAMPTZ
 
 CustomerPricing                     -- per-customer price override

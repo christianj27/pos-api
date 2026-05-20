@@ -32,7 +32,7 @@ public class CustomerService(AppDbContext db) : ICustomerService
         {
             var debt = totalDebts.GetValueOrDefault(c.Id, 0m);
             var paid = totalPaid.GetValueOrDefault(c.Id, 0m);
-            return MapToResponse(c, debt - paid);
+            return MapToResponse(c, c.InitialDebt + debt - paid);
         });
     }
 
@@ -48,30 +48,40 @@ public class CustomerService(AppDbContext db) : ICustomerService
             .Where(dp => dp.CustomerId == id)
             .SumAsync(dp => dp.Amount);
 
-        return MapToResponse(c, totalDebt - totalPaid);
+        return MapToResponse(c, c.InitialDebt + totalDebt - totalPaid);
     }
 
     public async Task<(CustomerResponse? Customer, string? Error)> CreateAsync(CreateCustomerRequest request)
     {
+        if (request.InitialDebt.HasValue && request.InitialDebt.Value < 0)
+            return (null, "Saldo awal hutang tidak boleh negatif.");
+
         var customer = new Customer
         {
             Name = request.Name.Trim(),
             Phone = request.Phone?.Trim(),
-            Address = request.Address?.Trim()
+            Address = request.Address?.Trim(),
+            InitialDebt = request.InitialDebt ?? 0m
         };
         db.Customers.Add(customer);
         await db.SaveChangesAsync();
-        return (MapToResponse(customer, 0m), null);
+        return (MapToResponse(customer, customer.InitialDebt), null);
     }
 
     public async Task<(CustomerResponse? Customer, string? Error)> UpdateAsync(Guid id, UpdateCustomerRequest request)
     {
         var customer = await db.Customers.FindAsync(id);
         if (customer is null) return (null, "Customer not found.");
+
+        if (request.InitialDebt.HasValue && request.InitialDebt.Value < 0)
+            return (null, "Saldo awal hutang tidak boleh negatif.");
+
         customer.Name = request.Name.Trim();
         customer.Phone = request.Phone?.Trim();
         customer.Address = request.Address?.Trim();
         customer.IsActive = request.IsActive;
+        if (request.InitialDebt.HasValue)
+            customer.InitialDebt = request.InitialDebt.Value;
         await db.SaveChangesAsync();
 
         var totalDebt = await db.Transactions
@@ -81,7 +91,7 @@ public class CustomerService(AppDbContext db) : ICustomerService
             .Where(dp => dp.CustomerId == id)
             .SumAsync(dp => dp.Amount);
 
-        return (MapToResponse(customer, totalDebt - totalPaid), null);
+        return (MapToResponse(customer, customer.InitialDebt + totalDebt - totalPaid), null);
     }
 
     public async Task<CustomerPricingResponse?> GetPricingAsync(Guid customerId)
@@ -141,7 +151,7 @@ public class CustomerService(AppDbContext db) : ICustomerService
             .Where(dp => dp.CustomerId == customerId)
             .SumAsync(dp => dp.Amount);
 
-        return new CustomerDebtSummaryResponse(customerId, customer.Name, totalDebt - totalPaid);
+        return new CustomerDebtSummaryResponse(customerId, customer.Name, customer.InitialDebt + totalDebt - totalPaid);
     }
 
     public async Task<ContainerLoanSummaryResponse?> GetContainerLoansAsync(Guid customerId)
@@ -190,7 +200,7 @@ public class CustomerService(AppDbContext db) : ICustomerService
             .Select(dp => new DebtPaymentHistoryItem(dp.Id, dp.Amount, dp.Note, dp.Creator.Name, dp.CreatedAt))
             .ToListAsync();
 
-        return new CustomerDebtHistoryResponse(customerId, customer.Name, totalDebt - totalPaid, debtTxns, payments);
+        return new CustomerDebtHistoryResponse(customerId, customer.Name, customer.InitialDebt, customer.InitialDebt + totalDebt - totalPaid, debtTxns, payments);
     }
 
     private static CustomerResponse MapToResponse(Customer c, decimal outstandingDebt) =>

@@ -7,6 +7,8 @@
 
 | Version | Date | Author | Changes |
 |---|---|---|---------|
+| 3.8 | May 20, 2026 | — | FR-DBT-007 — Initial customer outstanding debt: `initial_debt` field added to Customer. Owners can set a one-time opening balance when creating or editing a customer. `outstanding_debt` formula updated to `initial_debt + SUM(transaction debt_amounts) - SUM(debt_payments)`. `CustomerDebtHistory` response now includes `initial_debt` field; `CustomerDebtDetailPage` shows an amber "Saldo Awal Hutang" info row when `initial_debt > 0`. New EF migration `AddInitialDebtToCustomer`. |
+| 3.7 | May 19, 2026 | — | FR-STK-016 — Auto-populate Transfer tab from vehicle stock: when the user selects a vehicle as the "Dari Lokasi", the item list is automatically pre-filled with all products currently stocked on that vehicle (using already-loaded stock levels data). Simple products populate with `quantity_total`; refillable products populate one row per status (filled / empty) with qty > 0. An info banner appears below the location selector. Switching to a warehouse resets the list to a single blank row. Pure frontend enhancement — no new API endpoints. |
 | 3.6 | May 19, 2026 | — | Two improvements: (1) FR-STK-015 — Negative stock warning for Transfer tab: frontend checks transfer quantities against current stock levels at the source location; if any item would result in negative stock, a confirmation dialog (soft warning) is shown before submitting — user may still proceed; (2) FR-TXN-021 — Negative stock warning on transaction creation: same pattern applied in Langkah 3 "Kirim Transaksi"; frontend checks each cart item against stock levels at the selected location; applies to both direct creation and Kurir fulfillment flows. |
 | 3.5 | May 19, 2026 | — | Three improvements: (1) FR-STK-014 — Stock movement Riwayat tab now shows customer name instead of empty destination for dispatch movements (backend includes `customer_name` from Transaction.Customer; `GET /api/stock/movements` response adds `customer_name` field); (2) FR-TXN-015 updated — Date filter is now shared across all tabs including Penugasan; `GET /api/assignments` accepts optional `date` query param (YYYY-MM-DD WIB); Penugasan tab uses the same `selectedDate` state as the transaction list; (3) FR-MST-005/006/007 — Aktifkan button added to Customer, Location, and Product management pages allowing reactivation of inactive records (Owner only; warehouses excluded). |
 | 3.4 | May 19, 2026 | — | Three improvements: (1) FR-STK-014 — Stock movement dispatch shows customer name in route (from→customer); (2) FR-TXN-015 — `GET /api/assignments` date filter added; Penugasan tab gets its own date filter UI; (3) FR-MST-005/006/007 — Aktifkan (reactivation) button for Customer, Location, Product pages. |: Owner/Kasir create task assignments for Kurir (zero stock side effects); Penugasan tab added to Transactions page (Kurir defaults to this tab); 2-step assignment creation overlay (Step 1: select Kurir + Customer; Step 2: select products + notes); Kurir processes via fulfillment overlay → creates delivery transaction; cancel confirm dialog for assignments; `assignmentService.ts` + mock seed records added; (2) Stock tab permission changes — Kurir: levels + movements only; Kasir: levels + movements + transfer + production; FR-STK-011 (production) expanded from Owner-only to Owner + Kasir; (3) FR-STK-012 UI — purchase cost hidden for `vendor_exchange` movements from Kurir and Kasir roles in the Riwayat tab (purchase cost is owner-only business information; all other movement types unaffected). |
@@ -259,6 +261,7 @@ The system shall reject a username already taken by any user (active or inactive
 - **Deactivate:** Dialog — `"Nonaktifkan [nama]? Mereka tidak akan bisa login lagi."`
 - **Empty state:** `"Belum ada pengguna. Buat pengguna pertama untuk memulai."`
 - **Inactive users:** Muted styling; badge "Tidak Aktif"
+- **Notifikasi Toast:** Berhasil buat → `"Pengguna berhasil dibuat."` · Berhasil ubah → `"Pengguna berhasil diperbarui."` · Nonaktifkan → `"Pengguna berhasil dinonaktifkan."` · Aktifkan kembali → `"Pengguna berhasil diaktifkan kembali."` · Gagal → `"Terjadi kesalahan. Silakan coba lagi."`
 
 ---
 
@@ -303,6 +306,7 @@ A kurir can read their own assigned vehicle location. They cannot see other vehi
 - **Create/Edit:** Modal form; assigned kurir dropdown only appears when type = Kendaraan
 - **Deactivate:** Dialog — `"Nonaktifkan [nama]? Kendaraan ini tidak akan bisa digunakan untuk memuat barang."`
 - **Empty state:** `"Belum ada lokasi. Tambahkan gudang atau kendaraan."`
+- **Notifikasi Toast:** Berhasil buat → `"Lokasi berhasil dibuat."` · Berhasil ubah → `"Lokasi berhasil diperbarui."` · Nonaktifkan → `"Lokasi berhasil dinonaktifkan."` · Gagal → `"Terjadi kesalahan. Silakan coba lagi."`
 
 ---
 
@@ -351,6 +355,7 @@ Effective unit price = `CustomerPricing.custom_price` (if exists for the custome
 - **Create/Edit:** Modal form; production type field appears only when category = Refillable
 - **Deactivate:** Dialog — `"Nonaktifkan [nama]? Produk tidak akan muncul di formulir baru."`
 - **Empty state:** `"Belum ada produk. Tambahkan produk air atau gas pertama Anda."`
+- **Notifikasi Toast:** Berhasil buat → `"Produk berhasil dibuat."` · Berhasil ubah → `"Produk berhasil diperbarui."` · Nonaktifkan → `"Produk berhasil dinonaktifkan."` · Gagal → `"Terjadi kesalahan. Silakan coba lagi."`
 
 ---
 
@@ -404,6 +409,7 @@ Pricing UI shows all active products with: product name, base price, optional cu
 - **Deactivate:** Dialog — `"Nonaktifkan [nama]? Mereka tidak akan muncul di transaksi baru."`
 - **Empty state (list):** `"Belum ada pelanggan. Tambahkan pelanggan pertama Anda."`
 - **Empty state (pricing):** `"Tidak ada produk aktif untuk dikonfigurasi harganya."`
+- **Notifikasi Toast:** Berhasil buat → `"Pelanggan berhasil dibuat."` · Berhasil ubah → `"Pelanggan berhasil diperbarui."` · Nonaktifkan → `"Pelanggan berhasil dinonaktifkan."` · Simpan harga khusus → `"Harga khusus berhasil disimpan."` · Gagal → `"Terjadi kesalahan. Silakan coba lagi."`
 
 ---
 
@@ -490,9 +496,8 @@ Owner **or Kurir** records a vendor exchange (taking empties to vendor, receivin
 Owner records an in-house refill for `selfproduced` refillable products (e.g. filling Galon Isi Ulang from the store's own water source):
 - Endpoint: `POST /api/stock/production`
 - Accepts: `product_id` (must be `refillable` + `selfproduced`), `location_id`, `quantity`, optional `production_cost`, optional `notes`
-- Atomically creates two `StockMovement` records:
-  1. **Empty consumed** — `movement_type = 'production'`, `container_status = 'empty'`, `from_location = location_id`, `to_location = null`, `purchase_cost = production_cost`; decrements `quantity_empty` by `quantity`
-  2. **Filled produced** — `movement_type = 'production'`, `container_status = 'filled'`, `from_location = null`, `to_location = location_id`; increments `quantity_filled` by `quantity`
+- Atomically: decrements `quantity_empty` by `quantity`; increments `quantity_filled` by `quantity`
+- Creates a `StockMovement` record with `movement_type = 'production'`, `from_location = location_id`, `to_location = location_id`
 - Available to Owner and Kasir
 
 **FR-STK-012 — Date filter for stock movement history**
@@ -510,6 +515,14 @@ The server creates two `StockMovements` records per item atomically (same as sin
 
 **FR-STK-015 — Negative stock warning for Transfer tab**
 Before submitting a transfer, the frontend checks each item's requested quantity against the current stock level at the source location (`from_location_id`). For simple products, `quantity_total` is used; for refillable products, `quantity_filled` (if `container_status = filled`) or `quantity_empty` (if `container_status = empty`) is used. If any item would result in negative stock (available − requested < 0), a `ConfirmDialog` is displayed listing the affected products with their available and requested quantities. The user may confirm to proceed anyway (soft warning — the API does not enforce a minimum) or cancel to revise the form. The check runs on every submit attempt and uses the `levels` data already loaded on the Stock page.
+
+**FR-STK-016 — Auto-populate Transfer tab from vehicle stock**
+When the user selects a vehicle location as the "Dari Lokasi" in the Transfer tab, the item list is automatically pre-filled with all products currently stocked on that vehicle, using the `levels` data already loaded on page mount. Population rules:
+- `simple` product with `quantity_total > 0` → one row with `container_status = na` and `quantity = quantity_total`
+- `refillable` product with `quantity_filled > 0` → one row with `container_status = filled` and `quantity = quantity_filled`
+- `refillable` product with `quantity_empty > 0` → one row with `container_status = empty` and `quantity = quantity_empty`
+
+If the vehicle has no stock, the list resets to a single blank row (no banner). When the user switches the source location to a warehouse or clears it, the list also resets to a single blank row. When switching between two vehicle locations, the list re-populates with the newly selected vehicle’s stock. The user can still edit quantities, remove rows, or add rows after auto-population. The negative-stock `ConfirmDialog` (FR-STK-015) continues to apply normally after auto-population. No new API endpoints are required — the feature reads from `levels` state already maintained by the Stock page.
 
 ### 9.3 Validation Rules
 
@@ -537,6 +550,7 @@ Before submitting a transfer, the frontend checks each item's requested quantity
 - **Movement history:** Date filter at top of Riwayat tab (same pattern as FR-DSH-006): `<input type="date">` + conditional "Hari Ini" button; defaults to today WIB; calling `GET /api/stock/movements?date=YYYY-MM-DD`. Movements are lazy-loaded when the tab is first opened (and reloaded when date changes). Newest first; movement type badge (Terima/Transfer/Cacat); container status badge (Isi/Kosong/N/A). Purchase cost is hidden for `vendor_exchange` movements when the role is Kurir or Kasir (purchase cost is owner-only business information; cost from `dispatch` movements — i.e. selling transactions — remains visible to all roles).
 - **Empty state (levels):** `"Tidak ada produk. Tambahkan produk untuk melacak stok."`
 - **Empty state (history):** `"Belum ada pergerakan stok tercatat."`
+- **Notifikasi Toast:** Terima stok → `"Stok berhasil diterima."` · Transfer → `"Transfer stok berhasil."` · Defek → `"Defek berhasil dicatat."` · Tukar agent → `"Tukar agent berhasil dicatat."` · Produksi → `"Produksi berhasil dicatat."` · Kembalian kontainer → `"Pengembalian berhasil dicatat."` · Gagal → `"Gagal menyimpan. Periksa kembali data."`
 
 ---
 
@@ -722,6 +736,7 @@ Before submitting in Langkah 3, the frontend checks each cart item's quantity ag
 - **QRIS note:** Inline info banner when `method = 'qris'` — `"Integrasi QRIS otomatis hadir di Fase 2. Konfirmasi pembayaran secara manual."`
 
 - **Empty state:** `"Belum ada transaksi."` (kurir/kasir) / `"Belum ada transaksi tercatat."` (owner)
+- **Notifikasi Toast:** Buat transaksi → `"Transaksi berhasil dibuat."` · Batalkan transaksi → `"Transaksi berhasil dibatalkan."` · Tambah pembayaran → `"Pembayaran berhasil dicatat."` · Buat penugasan → `"Penugasan berhasil dibuat."` · Batalkan penugasan → `"Penugasan berhasil dibatalkan."` · Selesaikan penugasan → `"Penugasan berhasil diselesaikan."` · Gagal → `"Terjadi kesalahan. Silakan coba lagi."`
 
 ---
 
@@ -777,6 +792,7 @@ Computed: `SUM(Transactions.debt_amount WHERE customer) - SUM(DebtPayments.amoun
 - **Customer detail — debt section:** Total outstanding; tombol "Catat Pelunasan Utang"
 - **Debt payment form:** Customer name (read-only), amount, method, optional ref number, notes
 - **QRIS note:** Inline info banner
+- **Notifikasi Toast:** Catat pembayaran hutang → `"Pembayaran berhasil dicatat."` · Gagal → `"Terjadi kesalahan. Silakan coba lagi."`
 
 ---
 
@@ -1106,6 +1122,14 @@ All monetary values in IDR via `formatCurrency.js`:
 - Each customer row in the Dashboard "Hutang Pelanggan" section is now tappable (role="button", keyboard-accessible via onKeyDown Enter/Space).
 - Tapping navigates to `/debt-payments/:customer_id`.
 - A right-pointing chevron icon is displayed at the row's trailing edge.
+
+**FR-DBT-007 — Initial customer outstanding debt**
+- A customer record may carry an `initial_debt` value (≥ 0, in Rupiah) representing a pre-existing balance brought forward from paper records (one-time migration use).
+- The **Owner** can set `initial_debt` when creating a new customer or editing an existing one via the "Saldo Hutang Awal (Rp, opsional)" numeric input in the customer form. The field is hidden from Kasir and Kurir roles.
+- `outstanding_debt` is now computed as: `initial_debt + SUM(transactions.debt_amount WHERE status ≠ cancelled) - SUM(debt_payments.amount)`.
+- `GET /api/customers/{id}/debt-history` response now includes an `initial_debt` field. The per-customer debt detail page (`CustomerDebtDetailPage`) displays an amber info row "Saldo Awal Hutang" when `initial_debt > 0`.
+- Validation: `initial_debt` must be ≥ 0; negative values are rejected with HTTP 400.
+- Existing customers without a set value default to `initial_debt = 0` (no behaviour change).
 
 **FR-DBT-006 — Catat Pembayaran modal — payment method field**
 - The "Catat Pembayaran" create-payment modal (used on both `/debt-payments` and `/debt-payments/:customerId`) must include a **Metode Pembayaran** selector with three options: **Tunai** (`cash`), **Transfer** (`transfer`), **QRIS** (`qris`). Default: Tunai.

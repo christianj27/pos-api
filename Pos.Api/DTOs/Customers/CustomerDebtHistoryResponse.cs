@@ -21,6 +21,7 @@ public record DebtPaymentHistoryItem(
 public record CustomerDebtHistoryResponse(
     Guid CustomerId,
     string CustomerName,
+    decimal InitialDebt,
     decimal OutstandingDebt,
     IEnumerable<DebtTransactionItem> DebtTransactions,
     IEnumerable<DebtPaymentHistoryItem> Payments

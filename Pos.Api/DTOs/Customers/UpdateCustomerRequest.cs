@@ -4,5 +4,6 @@ public record UpdateCustomerRequest(
     string Name,
     string? Phone,
     string? Address,
-    bool IsActive
+    bool IsActive,
+    decimal? InitialDebt = null
 );

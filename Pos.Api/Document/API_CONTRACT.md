@@ -342,9 +342,10 @@ Returns the authenticated user's own record only.
 | `address` | string \| null | — |
 | `is_active` | boolean | — |
 | `created_at` | string (ISO 8601) | — |
-| `outstanding_debt` | number | Net debt: total debt minus total payments (Rupiah) |
+| `outstanding_debt` | number | Net debt: `initial_debt + SUM(transaction debt_amounts) - SUM(debt_payments)` (Rupiah) |
+| `initial_debt` | number | Opening balance carried forward from paper records; `0` by default |
 
-> ✅ **Known gap #1 (resolved)**: `outstanding_debt` is now included in the Customer object. Backend `CustomerResponse` computes it as `SUM(transactions.debt_amount) - SUM(debt_payments.amount)` per customer.
+> ✅ **Known gap #1 (resolved)**: `outstanding_debt` is now included in the Customer object. Backend `CustomerResponse` computes it as `initial_debt + SUM(transactions.debt_amount) - SUM(debt_payments.amount)` per customer.
 
 ---
 
@@ -357,6 +358,7 @@ Returns the authenticated user's own record only.
 | `name` | string | ✅ | max 100 chars |
 | `phone` | string | ❌ | max 20 chars |
 | `address` | string | ❌ | — |
+| `initial_debt` | number | ❌ | Opening balance ≥ 0; defaults to `0` |
 
 **Response `201`** — Customer object.
 
@@ -374,6 +376,7 @@ Returns the authenticated user's own record only.
 | `phone` | string \| null | ❌ | — |
 | `address` | string \| null | ❌ | — |
 | `is_active` | boolean | ❌ | Set `false` to deactivate customer |
+| `initial_debt` | number | ❌ | Opening balance ≥ 0; replaces previous value when provided |
 
 **Response `200`** — updated Customer object.
 
@@ -458,7 +461,8 @@ Returns aggregated (net) container balances per product, not a raw event log.
 |---|---|---|
 | `customer_id` | string (UUID) | — |
 | `customer_name` | string | — |
-| `outstanding_debt` | number | Current computed balance |
+| `initial_debt` | number | Opening balance carried forward; `0` if not set |
+| `outstanding_debt` | number | Current computed balance (`initial_debt + tx_debts - payments`) |
 | `debt_transactions` | array | Transactions that created debt; sorted newest first |
 | `debt_transactions[].id` | string (UUID) | — |
 | `debt_transactions[].created_at` | string (ISO 8601) | — |
