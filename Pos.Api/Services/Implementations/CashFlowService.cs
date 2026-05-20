@@ -8,9 +8,13 @@ namespace Pos.Api.Services.Implementations;
 
 public class CashFlowService(AppDbContext db) : ICashFlowService
 {
-    public async Task<CashFlowSummaryResponse> GetCashFlowAsync(DateOnly date)
+    public Task<CashFlowSummaryResponse> GetCashFlowAsync(DateOnly date)
+        => GetCashFlowRangeAsync(date, date);
+
+    public async Task<CashFlowSummaryResponse> GetCashFlowRangeAsync(DateOnly startDate, DateOnly endDate)
     {
-        var (start, end) = WibTimeZone.GetUtcDayBounds(date);
+        var (start, _) = WibTimeZone.GetUtcDayBounds(startDate);
+        var (_, end)   = WibTimeZone.GetUtcDayBounds(endDate);
         var entries = new List<CashFlowEntryResponse>();
 
         // 1. Transactions - cash_in/sale_payment + new_debt/debt_created

@@ -11,8 +11,14 @@ namespace Pos.Api.Controllers;
 public class CashFlowController(ICashFlowService cashFlowService) : ControllerBase
 {
     [HttpGet]
-    public async Task<IActionResult> GetCashFlow([FromQuery] DateOnly? date)
+    public async Task<IActionResult> GetCashFlow(
+        [FromQuery] DateOnly? date,
+        [FromQuery(Name = "start_date")] DateOnly? startDate,
+        [FromQuery(Name = "end_date")] DateOnly? endDate)
     {
+        if (startDate.HasValue && endDate.HasValue)
+            return Ok(await cashFlowService.GetCashFlowRangeAsync(startDate.Value, endDate.Value));
+
         var target = date ?? WibTimeZone.TodayWib();
         return Ok(await cashFlowService.GetCashFlowAsync(target));
     }

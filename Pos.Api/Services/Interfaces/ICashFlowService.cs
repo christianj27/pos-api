@@ -5,4 +5,5 @@ namespace Pos.Api.Services.Interfaces;
 public interface ICashFlowService
 {
     Task<CashFlowSummaryResponse> GetCashFlowAsync(DateOnly date);
+    Task<CashFlowSummaryResponse> GetCashFlowRangeAsync(DateOnly startDate, DateOnly endDate);
 }
