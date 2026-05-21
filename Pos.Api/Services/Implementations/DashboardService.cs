@@ -81,14 +81,11 @@ public class DashboardService(AppDbContext db) : IDashboardService
 
         // Staff revenue for selected date (FR-DSH-010)
         var staffRevenue = await db.Transactions
-            .Include(t => t.Staff)
             .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= start && t.CreatedAt < end)
-            .GroupBy(t => new { t.StaffId, t.Staff.Name })
-            .Select(g => new StaffRevenueSummary(
-                g.Key.StaffId,
-                g.Key.Name,
-                g.Sum(t => t.PaidAmount),
-                g.Count()))
+            .GroupBy(t => t.StaffId)
+            .Select(g => new { StaffId = g.Key, Revenue = g.Sum(t => t.PaidAmount), Count = g.Count() })
+            .Join(db.Users, g => g.StaffId, u => u.Id,
+                (g, u) => new StaffRevenueSummary(g.StaffId, u.Name, g.Revenue, g.Count))
             .OrderByDescending(s => s.Revenue)
             .ToListAsync();
 
