@@ -80,14 +80,26 @@ public class DashboardService(AppDbContext db) : IDashboardService
             t.TotalAmount, t.PaidAmount, t.CreatedAt));
 
         // Staff revenue for selected date (FR-DSH-010)
-        var staffRevenue = await db.Transactions
+        var staffAggregates = await db.Transactions
             .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= start && t.CreatedAt < end)
             .GroupBy(t => t.StaffId)
             .Select(g => new { StaffId = g.Key, Revenue = g.Sum(t => t.PaidAmount), Count = g.Count() })
-            .Join(db.Users, g => g.StaffId, u => u.Id,
-                (g, u) => new StaffRevenueSummary(g.StaffId, u.Name, g.Revenue, g.Count))
-            .OrderByDescending(s => s.Revenue)
             .ToListAsync();
+
+        var staffIds = staffAggregates.Select(a => a.StaffId).ToList();
+        var staffNames = await db.Users
+            .Where(u => staffIds.Contains(u.Id))
+            .Select(u => new { u.Id, u.Name })
+            .ToDictionaryAsync(u => u.Id, u => u.Name);
+
+        var staffRevenue = staffAggregates
+            .Select(a => new StaffRevenueSummary(
+                a.StaffId,
+                staffNames.GetValueOrDefault(a.StaffId, "Unknown"),
+                a.Revenue,
+                a.Count))
+            .OrderByDescending(s => s.Revenue)
+            .ToList();
 
         // Warehouse stock (current state, not date-filtered)
         var warehouseStock = warehouseLoc is not null
