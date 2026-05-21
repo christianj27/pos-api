@@ -15,6 +15,7 @@ public class AssignmentService(AppDbContext db, ITransactionService transactionS
         var q = db.DeliveryAssignments
             .Include(a => a.Kurir)
             .Include(a => a.Customer)
+            .Include(a => a.Location)
             .Include(a => a.Items).ThenInclude(i => i.Product)
             .AsQueryable();
 
@@ -44,10 +45,15 @@ public class AssignmentService(AppDbContext db, ITransactionService transactionS
         if (customer is null || !customer.IsActive)
             return (null, "Pelanggan tidak valid.");
 
+        var location = await db.Locations.FindAsync(request.LocationId);
+        if (location is null || !location.IsActive)
+            return (null, "Lokasi tidak valid atau tidak aktif.");
+
         var assignment = new DeliveryAssignment
         {
             KurirId = request.KurirId,
             CustomerId = request.CustomerId,
+            LocationId = request.LocationId,
             CreatedBy = createdBy,
             Notes = request.Notes,
             Status = AssignmentStatus.Pending
@@ -68,7 +74,7 @@ public class AssignmentService(AppDbContext db, ITransactionService transactionS
         await db.SaveChangesAsync();
 
         var created = await db.DeliveryAssignments
-            .Include(a => a.Kurir).Include(a => a.Customer)
+            .Include(a => a.Kurir).Include(a => a.Customer).Include(a => a.Location)
             .Include(a => a.Items).ThenInclude(i => i.Product)
             .FirstAsync(a => a.Id == assignment.Id);
 
@@ -86,17 +92,27 @@ public class AssignmentService(AppDbContext db, ITransactionService transactionS
         if (assignment.Status != AssignmentStatus.Pending) return (false, "Penugasan ini sudah diproses atau dibatalkan.");
         if (assignment.KurirId != kurirId) return (false, "Anda tidak memiliki izin untuk memproses penugasan ini.");
 
-        // Find kurir's assigned vehicle
-        var vehicle = await db.Locations
-            .FirstOrDefaultAsync(l => l.AssignedTo == kurirId && l.Type == LocationType.Vehicle && l.IsActive);
-
-        if (vehicle is null) return (false, "Kendaraan untuk kurir ini tidak ditemukan.");
+        // Use location stored on assignment; fall back to kurir's assigned vehicle for old records
+        Guid locationId;
+        if (assignment.LocationId.HasValue)
+        {
+            locationId = assignment.LocationId.Value;
+        }
+        else
+        {
+            var vehicle = await db.Locations
+                .FirstOrDefaultAsync(l => l.AssignedTo == kurirId && l.Type == LocationType.Vehicle && l.IsActive);
+            if (vehicle is null) return (false, "Kendaraan untuk kurir ini tidak ditemukan.");
+            locationId = vehicle.Id;
+        }
 
         var txRequest = new CreateTransactionRequest(
             TransactionType: "delivery",
             CustomerId: assignment.CustomerId,
-            LocationId: vehicle.Id,
-            Items: assignment.Items.Select(i => new TransactionItemRequest(i.ProductId, i.Quantity, i.UnitPrice)),
+            LocationId: locationId,
+            Items: (request.Items is not null && request.Items.Any())
+                ? request.Items.Select(i => new TransactionItemRequest(i.ProductId, i.Quantity, i.UnitPrice))
+                : assignment.Items.Select(i => new TransactionItemRequest(i.ProductId, i.Quantity, i.UnitPrice)),
             PaidAmount: request.PaidAmount,
             PaymentMethod: request.PaymentMethod,
             Notes: request.Notes ?? assignment.Notes,
@@ -127,7 +143,8 @@ public class AssignmentService(AppDbContext db, ITransactionService transactionS
 
     private static AssignmentResponse MapToResponse(DeliveryAssignment a) =>
         new(a.Id, a.Status.ToString().ToLower(), a.KurirId, a.Kurir.Name,
-            a.CustomerId, a.Customer.Name, a.Notes, a.TransactionId, a.CreatedAt,
+            a.CustomerId, a.Customer.Name, a.LocationId, a.Location?.Name,
+            a.Notes, a.TransactionId, a.CreatedAt,
             a.Items.Select(i => new AssignmentItemResponse(
                 i.ProductId, i.Product.Name, i.Product.Unit, i.Quantity, i.UnitPrice)));
 }

@@ -5,6 +5,7 @@ public record AssignmentItemRequest(Guid ProductId, int Quantity, decimal UnitPr
 public record CreateAssignmentRequest(
     Guid KurirId,
     Guid CustomerId,
+    Guid LocationId,
     IEnumerable<AssignmentItemRequest> Items,
     string? Notes
 );

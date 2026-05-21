@@ -699,6 +699,8 @@ _(Owner/Kasir see all assignments; Kurir sees only their own)_
 | `kurir_name` | string | — |
 | `customer_id` | string (UUID) | — |
 | `customer_name` | string | — |
+| `location_id` | string (UUID) \| null | Stock source location chosen at creation |
+| `location_name` | string \| null | — |
 | `notes` | string \| null | — |
 | `transaction_id` | string (UUID) \| null | Set after fulfillment |
 | `created_at` | string (ISO 8601) | — |
@@ -719,6 +721,7 @@ _(Owner/Kasir see all assignments; Kurir sees only their own)_
 |---|---|---|---|
 | `kurir_id` | string (UUID) | ✅ | Must be an active user with `role = kurir` |
 | `customer_id` | string (UUID) | ✅ | — |
+| `location_id` | string (UUID) | ✅ | Any active location (warehouse or vehicle); used as stock source when fulfilled |
 | `notes` | string | ❌ | max 255 chars |
 | `items` | array | ✅ | At least 1 item |
 | `items[].product_id` | string (UUID) | ✅ | — |
@@ -734,22 +737,24 @@ _(Owner/Kasir see all assignments; Kurir sees only their own)_
 
 **Path Params**: `id` — UUID of the assignment.
 
-> Atomically: creates a `delivery` Transaction, dispatches stock from the kurir's truck, creates ContainerLoans (refillable + customer), creates a DebtPayment if `debt_payment_amount > 0`. Marks assignment `fulfilled`.
+> Atomically: uses the delivered `items` (falling back to the assignment's stored items if omitted) to create a `delivery` Transaction, dispatches stock from the assignment's location, creates ContainerLoans (refillable + customer), creates a DebtPayment if `debt_payment_amount > 0`. Marks assignment `fulfilled`.
 
 **Request Body**
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `paid_amount` | number | ✅ | Amount collected; ≥ 0 |
 | `payment_method` | string | ❌ | `cash` \| `transfer` \| `qris`; defaults to `cash` |
-| `notes` | string | ❌ | max 255 chars |
+| `notes` | string | ❌ | Required when delivered quantities differ from the assignment; max 255 chars |
+| `items` | array | ❌ | Actual items delivered. When provided, overrides the assignment's stored items (allows partial delivery). When omitted, the assignment's original items are used. |
+| `items[].product_id` | string (UUID) | ✅ | — |
+| `items[].quantity` | number | ✅ | Positive integer |
+| `items[].unit_price` | number | ✅ | Price snapshot |
 | `container_returns` | array | ❌ | Empty containers returned by customer at delivery |
 | `container_returns[].product_id` | string (UUID) | ✅ | — |
 | `container_returns[].quantity` | number | ✅ | Positive integer |
 | `debt_payment_amount` | number | ❌ | Settle pre-existing debt alongside this transaction |
 
 **Response `204`** — No content.
-
-> ✅ **Known gap #2 (resolved)**: Decision made — items are always taken from the saved assignment as-is. Frontend `FulfillAssignmentPayload` no longer sends `items[]`; the backend derives them from the stored assignment.
 
 ---
 

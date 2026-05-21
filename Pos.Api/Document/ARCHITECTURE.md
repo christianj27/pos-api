@@ -211,6 +211,24 @@ RefreshTokens
   expires_at      TIMESTAMPTZ
   revoked_at      TIMESTAMPTZ    -- null if still valid
   created_at      TIMESTAMPTZ
+
+DeliveryAssignments
+  id              UUID  PK
+  kurir_id        UUID  FK → Users
+  customer_id     UUID  FK → Customers
+  location_id     UUID  FK → Locations  -- nullable; stock source chosen by owner/kasir at creation
+  status          ENUM('pending', 'fulfilled', 'cancelled')
+  notes           TEXT
+  created_by      UUID  FK → Users
+  transaction_id  UUID  FK → Transactions  -- nullable; set on fulfillment
+  created_at      TIMESTAMPTZ
+
+DeliveryAssignmentItems
+  id              UUID  PK
+  assignment_id   UUID  FK → DeliveryAssignments
+  product_id      UUID  FK → Products
+  quantity        INT
+  unit_price      DECIMAL(15,2)   -- snapshot at assignment creation
 ```
 
 **Stock level per location** is computed: `SUM(quantity WHERE movement brings stock IN to location) - SUM(quantity WHERE movement takes stock OUT of location)`, split by `container_status` for refillable products.
@@ -285,8 +303,8 @@ POST   /api/stock/production       -- in-house refill (owner and kasir): atomica
 
 # Delivery Assignments
 GET    /api/assignments             -- owner/kasir: all; kurir: own only
-POST   /api/assignments             -- create task assignment (owner/kasir only); zero stock side effects
-POST   /api/assignments/{id}/fulfill -- kurir processes assignment: creates delivery transaction, marks fulfilled
+POST   /api/assignments             -- create task assignment (owner/kasir only); body includes location_id (any active location); zero stock side effects
+POST   /api/assignments/{id}/fulfill -- kurir processes assignment: creates delivery transaction from assignment.location_id, marks fulfilled
 PUT    /api/assignments/{id}/cancel  -- mark assignment cancelled (owner/kasir only); zero stock side effects
 
 # Transactions

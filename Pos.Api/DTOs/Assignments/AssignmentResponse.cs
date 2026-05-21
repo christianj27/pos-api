@@ -15,6 +15,8 @@ public record AssignmentResponse(
     string KurirName,
     Guid CustomerId,
     string CustomerName,
+    Guid? LocationId,
+    string? LocationName,
     string? Notes,
     Guid? TransactionId,
     DateTime CreatedAt,

@@ -7,6 +7,7 @@
 
 | Version | Date | Author | Changes |
 |---|---|---|---------|
+| 4.1 | May 21, 2026 | — | FR-ASG-LOC — Assignment location selection: Owner/Kasir must pick a stock source location (any active warehouse or vehicle) in Step 1 of assignment creation. The chosen location is stored on the assignment (`location_id`) and pre-filled + locked as the Lokasi Stok when Kurir fulfills the assignment in the transaction overlay. Kurir's own new (non-assignment) delivery transactions continue to auto-fill from the kurir's assigned vehicle as before. Backend: `location_id` (nullable UUID FK) added to `DeliveryAssignments`; `CreateAssignmentRequest` extended with required `LocationId`; `AssignmentResponse` returns `location_id` + `location_name`; `FulfillAsync` uses stored location with vehicle fallback for old records. New EF migration `AddLocationToAssignment`. Frontend: `DeliveryAssignment` type extended; `assignmentService` updated; `TransactionsPage` Step 1 gains a location picker and the Step 2 locked fields show Lokasi Stok. |
 | 3.8 | May 20, 2026 | — | FR-DBT-007 — Initial customer outstanding debt: `initial_debt` field added to Customer. Owners can set a one-time opening balance when creating or editing a customer. `outstanding_debt` formula updated to `initial_debt + SUM(transaction debt_amounts) - SUM(debt_payments)`. `CustomerDebtHistory` response now includes `initial_debt` field; `CustomerDebtDetailPage` shows an amber "Saldo Awal Hutang" info row when `initial_debt > 0`. New EF migration `AddInitialDebtToCustomer`. |
 | 3.7 | May 19, 2026 | — | FR-STK-016 — Auto-populate Transfer tab from vehicle stock: when the user selects a vehicle as the "Dari Lokasi", the item list is automatically pre-filled with all products currently stocked on that vehicle (using already-loaded stock levels data). Simple products populate with `quantity_total`; refillable products populate one row per status (filled / empty) with qty > 0. An info banner appears below the location selector. Switching to a warehouse resets the list to a single blank row. Pure frontend enhancement — no new API endpoints. |
 | 3.6 | May 19, 2026 | — | Two improvements: (1) FR-STK-015 — Negative stock warning for Transfer tab: frontend checks transfer quantities against current stock levels at the source location; if any item would result in negative stock, a confirmation dialog (soft warning) is shown before submitting — user may still proceed; (2) FR-TXN-021 — Negative stock warning on transaction creation: same pattern applied in Langkah 3 "Kirim Transaksi"; frontend checks each cart item against stock levels at the selected location; applies to both direct creation and Kurir fulfillment flows. |
@@ -670,9 +671,10 @@ The transaction list and assignment list share a single date filter. `GET /api/t
 **FR-TXN-016 — Delivery Assignment creation (Owner/Kasir)**
 Owner and Kasir can create a delivery assignment for a Kurir. An assignment is a pure task record — it has zero stock side effects. No stock is reserved or deducted at creation time.
 - Endpoint: `POST /api/assignments`
-- Body: `{ kurir_id, customer_id, items: [{ product_id, quantity, unit_price }], notes? }`
-- Server creates a `DeliveryAssignment` record with `status = 'pending'`
-- The UI uses a 2-step overlay: Step 1 = select Kurir + Customer; Step 2 = select products + notes
+- Body: `{ kurir_id, customer_id, location_id, items: [{ product_id, quantity, unit_price }], notes? }`
+- `location_id` is required and must be an active location (warehouse or vehicle). It represents the stock source from which the Kurir will dispatch goods when fulfilling the assignment.
+- Server creates a `DeliveryAssignment` record with `status = 'pending'` and stores the chosen `location_id`.
+- The UI uses a 2-step overlay: **Step 1** = select Kurir + Customer + Location (any active warehouse or vehicle, shown as a button list); **Step 2** = select products + notes. The "Lanjut" button is disabled until all three are selected.
 
 **FR-TXN-017 — Assignment list**
 All roles can view the Penugasan tab on the Transactions page.
@@ -682,10 +684,12 @@ All roles can view the Penugasan tab on the Transactions page.
 - Kurir's default tab on the Transactions page is Penugasan
 
 **FR-TXN-018 — Assignment fulfillment (Kurir)**
-Kurir can process a pending assignment by pressing "Proses". This opens the standard transaction overlay pre-populated with the assignment's customer and items. On confirm, the system calls `POST /api/assignments/{id}/fulfill` which:
-1. Looks up the kurir's vehicle location
-2. Creates a `delivery` transaction (same as FR-TXN-001)
+Kurir can process a pending assignment by pressing "Proses". This opens the standard transaction overlay pre-populated with the assignment's customer, items, and stock location. The **Lokasi Stok** field is pre-filled from `assignment.location_id` and locked (read-only). On confirm, the system calls `POST /api/assignments/{id}/fulfill` which:
+1. Uses the stored `location_id` on the assignment as the stock source (falls back to the kurir's assigned vehicle for legacy assignments that predate this field)
+2. Creates a `delivery` transaction dispatching stock based on the actual delivered items (falls back to the assignment's original items if none supplied)
 3. Marks the assignment `status = 'fulfilled'` and stores `transaction_id`
+
+The kurir may adjust item quantities in Step 2 before confirming (e.g., partial delivery). If the delivered items differ from the assignment (quantity changed, product added or removed), the **Notes field becomes mandatory** and the submit is blocked with a toast until notes are filled in. Stock is deducted and the transaction total is calculated from the actual delivered quantities, not the assignment's planned quantities.
 
 **FR-TXN-019 — Assignment cancellation (Owner/Kasir)**
 Owner and Kasir can cancel a pending assignment via a confirm dialog. No stock effects.
