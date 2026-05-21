@@ -15,7 +15,6 @@ public class CustomersController(ICustomerService customerService) : ControllerB
         Ok(await customerService.GetAllAsync(activeOnly));
 
     [HttpPost]
-    [Authorize(Policy = "OwnerOnly")]
     public async Task<IActionResult> Create([FromBody] CreateCustomerRequest request)
     {
         var (customer, error) = await customerService.CreateAsync(request);
@@ -24,7 +23,6 @@ public class CustomersController(ICustomerService customerService) : ControllerB
     }
 
     [HttpPut("{id:guid}")]
-    [Authorize(Policy = "OwnerOnly")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateCustomerRequest request)
     {
         var (customer, error) = await customerService.UpdateAsync(id, request);
@@ -33,7 +31,7 @@ public class CustomersController(ICustomerService customerService) : ControllerB
     }
 
     [HttpGet("{id:guid}/pricing")]
-    [Authorize(Policy = "OwnerOnly")]
+    [Authorize(Policy = "AllStaff")]
     public async Task<IActionResult> GetPricing(Guid id)
     {
         var result = await customerService.GetPricingAsync(id);
