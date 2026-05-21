@@ -24,6 +24,13 @@ public record WarehouseStockItem(
     int? QuantityTotal
 );
 
+public record StaffRevenueSummary(
+    Guid StaffId,
+    string StaffName,
+    decimal Revenue,
+    int TransactionCount
+);
+
 public record DashboardResponse(
     decimal TodayRevenue,
     int TodayTransactions,
@@ -35,5 +42,6 @@ public record DashboardResponse(
     IEnumerable<WeeklyChartEntry> WeeklyChart,
     IEnumerable<RecentTransactionDashboardItem> RecentTransactions,
     IEnumerable<WarehouseStockItem> WarehouseStock,
-    IEnumerable<CustomerDebtSummary> CustomerDebts
+    IEnumerable<CustomerDebtSummary> CustomerDebts,
+    IEnumerable<StaffRevenueSummary> StaffRevenue
 );

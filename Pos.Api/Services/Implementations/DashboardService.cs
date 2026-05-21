@@ -79,6 +79,19 @@ public class DashboardService(AppDbContext db) : IDashboardService
             t.Staff.Name, t.Status.ToString().ToLower(),
             t.TotalAmount, t.PaidAmount, t.CreatedAt));
 
+        // Staff revenue for selected date (FR-DSH-010)
+        var staffRevenue = await db.Transactions
+            .Include(t => t.Staff)
+            .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= start && t.CreatedAt < end)
+            .GroupBy(t => new { t.StaffId, t.Staff.Name })
+            .Select(g => new StaffRevenueSummary(
+                g.Key.StaffId,
+                g.Key.Name,
+                g.Sum(t => t.PaidAmount),
+                g.Count()))
+            .OrderByDescending(s => s.Revenue)
+            .ToListAsync();
+
         // Warehouse stock (current state, not date-filtered)
         var warehouseStock = warehouseLoc is not null
             ? await GetWarehouseStockAsync(warehouseLoc.Id, warehouseLoc.Name)
@@ -106,7 +119,7 @@ public class DashboardService(AppDbContext db) : IDashboardService
         return new DashboardResponse(
             todayRevenue, todayTransactions, todayPurchaseCost, todayDebtCollected,
             lowStockCount, totalOutstandingDebt, prevRevenue,
-            weeklyChart, recentResponses, warehouseStock, customerDebts);
+            weeklyChart, recentResponses, warehouseStock, customerDebts, staffRevenue);
     }
 
     private async Task<IEnumerable<WarehouseStockItem>> GetWarehouseStockAsync(Guid warehouseId, string locationName)
