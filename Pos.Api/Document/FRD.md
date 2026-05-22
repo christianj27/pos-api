@@ -7,7 +7,7 @@
 
 | Version | Date | Author | Changes |
 |---|---|---|---------|
-| 4.1 | May 21, 2026 | — | FR-ASG-LOC — Assignment location selection: Owner/Kasir must pick a stock source location (any active warehouse or vehicle) in Step 1 of assignment creation. The chosen location is stored on the assignment (`location_id`) and pre-filled + locked as the Lokasi Stok when Kurir fulfills the assignment in the transaction overlay. Kurir's own new (non-assignment) delivery transactions continue to auto-fill from the kurir's assigned vehicle as before. Backend: `location_id` (nullable UUID FK) added to `DeliveryAssignments`; `CreateAssignmentRequest` extended with required `LocationId`; `AssignmentResponse` returns `location_id` + `location_name`; `FulfillAsync` uses stored location with vehicle fallback for old records. New EF migration `AddLocationToAssignment`. Frontend: `DeliveryAssignment` type extended; `assignmentService` updated; `TransactionsPage` Step 1 gains a location picker and the Step 2 locked fields show Lokasi Stok. |
+| 4.2 | May 22, 2026 | — | FR-DSH-011 — Dashboard accessible to all roles (owner, kasir, kurir). Kasir/kurir restrictions: Biaya Pembelian stat card hidden; Biaya Pembelian row in bar chart detail panel hidden; Pendapatan per Staf pie chart section hidden. All transaction-derived stats (Pendapatan, Transaksi, Biaya Pembelian, Piutang Terbayar, Pendapatan 7 Hari, Transaksi Terkini) scoped server-side to the authenticated user for kasir/kurir. Hutang Pelanggan, Stok Gudang, Stok Rendah shown store-wide for all roles. Backend: `DashboardController` authorization changed from `OwnerOnly` to `Authorize` (all authenticated); `userId` and `role` extracted from JWT claims; `DashboardService.GetDashboardAsync` accepts `userId` + `role`, uses `IQueryable<T>` with conditional `.Where(t => t.StaffId == userId)` / `.Where(m => m.CreatedBy == userId)` for non-owners; `staffRevenue` always empty for kasir/kurir. Frontend: `/dashboard` route allows `['owner','kasir','kurir']`; BottomNav adds Dashboard as first item for kasir/kurir (4→5 items each); `DashboardPage` uses `useAuth()` and conditionally hides owner-only sections. |
 | 3.8 | May 20, 2026 | — | FR-DBT-007 — Initial customer outstanding debt: `initial_debt` field added to Customer. Owners can set a one-time opening balance when creating or editing a customer. `outstanding_debt` formula updated to `initial_debt + SUM(transaction debt_amounts) - SUM(debt_payments)`. `CustomerDebtHistory` response now includes `initial_debt` field; `CustomerDebtDetailPage` shows an amber "Saldo Awal Hutang" info row when `initial_debt > 0`. New EF migration `AddInitialDebtToCustomer`. |
 | 3.7 | May 19, 2026 | — | FR-STK-016 — Auto-populate Transfer tab from vehicle stock: when the user selects a vehicle as the "Dari Lokasi", the item list is automatically pre-filled with all products currently stocked on that vehicle (using already-loaded stock levels data). Simple products populate with `quantity_total`; refillable products populate one row per status (filled / empty) with qty > 0. An info banner appears below the location selector. Switching to a warehouse resets the list to a single blank row. Pure frontend enhancement — no new API endpoints. |
 | 3.6 | May 19, 2026 | — | Two improvements: (1) FR-STK-015 — Negative stock warning for Transfer tab: frontend checks transfer quantities against current stock levels at the source location; if any item would result in negative stock, a confirmation dialog (soft warning) is shown before submitting — user may still proceed; (2) FR-TXN-021 — Negative stock warning on transaction creation: same pattern applied in Langkah 3 "Kirim Transaksi"; frontend checks each cart item against stock levels at the selected location; applies to both direct creation and Kurir fulfillment flows. |
@@ -880,14 +880,17 @@ Owner can view **all** customers with a non-zero net container balance via the *
 
 ## 13. Module: Dashboard (FR-DSH)
 
-**Accessible by:** Owner only
+**Accessible by:** All authenticated roles (owner, kasir, kurir). Kasir and kurir see a user-scoped view; certain owner-only sections are hidden.
 
 ### 13.1 User Stories
 
-- As an Owner, I want to see today's business summary at a glance.
+- As an Owner, I want to see today's full business summary at a glance.
 - As an Owner, I want to see a weekly bar chart of revenue so I can track performance over the week.
 - As an Owner, I want to filter the dashboard by a selected date so I can review historical summaries.
 - As an Owner, I want the dashboard to refresh automatically so I see live activity.
+- As a Kasir or Kurir, I want to see my own today's performance (revenue and transaction count) so I can track my activity.
+- As a Kasir or Kurir, I want to see the store's low-stock count and warehouse inventory so I can act on stock issues.
+- As a Kasir or Kurir, I want to see the store's customer debt summary so I know which customers owe money.
 
 ### 13.2 Functional Requirements
 
@@ -905,10 +908,10 @@ Polls `GET /api/dashboard` every **5 seconds** when active. Pauses on hidden tab
 10 most recent transactions: waktu, pelanggan, staff, tipe, total, status badge, lunas/utang indicator.
 
 **FR-DSH-004 — Warehouse stock summary**
-Current warehouse stock for all active products.
+Current warehouse stock for all active products. Shown store-wide to all roles.
 
-**FR-DSH-005 — Role redirect**
-Kurir and kasir navigating to `/dashboard` are redirected to `/transactions`.
+**FR-DSH-005 — Role-scoped access** *(updated by FR-DSH-011)*
+All authenticated roles may access `/dashboard`. Kasir and kurir see a user-scoped view (see FR-DSH-011). The previous redirect behaviour (kurir and kasir sent to `/transactions` on navigation to `/dashboard`) is removed; the Bottom Navigation bar now includes a Dashboard item as the first entry for kasir and kurir.
 
 **FR-DSH-006 — Date filter**
 The dashboard shall include a date picker that controls which date's data is displayed across all summary statistics and the weekly bar chart. Default value is today's date. When the Owner changes the selected date:
@@ -928,18 +931,46 @@ Each row in the Transaksi Terkini section shall be tappable/clickable. Tapping a
 **FR-DSH-009 — Hutang Pelanggan section**
 The dashboard shall include a **"Hutang Pelanggan"** section positioned below Transaksi Terkini and above Stok Gudang. This section lists all active customers with `outstanding_debt > 0`, sorted by debt amount descending. Each row shows: customer name (left) and outstanding debt in danger red (right). This section is **not affected by the date filter** — it always shows the current live state of customer debts (same behavior as the Stok Gudang section). The data is served in the `GET /api/dashboard` response as a `customer_debts` array: `[{ customer_id, customer_name, outstanding_debt }]`. Empty state: `"Tidak ada hutang pelanggan aktif."`
 
+**FR-DSH-010 — Pendapatan per Staf pie chart** *(owner only)*
+The dashboard shall include a **"Pendapatan per Staf"** section positioned immediately below "Pendapatan 7 Hari" and above "Transaksi Terkini". This section shows a pie chart breaking down revenue (`paid_amount`) by the staff member who created each completed transaction for the selected date. Only transactions with `status = 'completed'` are counted. Each slice corresponds to one staff member; the legend displays each staff name alongside their percentage share of total revenue. The tooltip on hover shows the formatted Rupiah amount and percentage. Staff members with zero revenue for the selected date are excluded from the chart. Empty state (no completed transactions at all): `"Tidak ada data pendapatan untuk hari ini."` The data is served in the `GET /api/dashboard` response as a `staff_revenue` array: `[{ staff_id, staff_name, revenue, transaction_count }]`, sorted by revenue descending. **This section is hidden for kasir and kurir; `staff_revenue` is always returned as an empty array for non-owner callers.**
+
+**FR-DSH-011 — Role-based dashboard access and user-scoped stats**
+The dashboard is accessible to all authenticated roles (owner, kasir, kurir). For **kasir and kurir**, the following rules apply:
+
+*Server-side scoping (backend):*
+- `today_revenue` — sum of `paid_amount` from the caller's own completed transactions on `date` (`Transaction.StaffId = caller.userId`).
+- `today_transactions` — count of the caller's own completed transactions on `date`.
+- `today_purchase_cost` — sum of `purchase_cost` from stock movements created by the caller on `date` (`StockMovement.CreatedBy = caller.userId`).
+- `today_debt_collected` — sum of debt payments recorded by the caller on `date` (`DebtPayment.CreatedBy = caller.userId`).
+- `previous_day_revenue` — same scoping as `today_revenue` but for the previous day.
+- `weekly_chart` — each entry's `revenue`, `transaction_count`, and `purchase_cost` are scoped to the caller's own records for that day.
+- `recent_transactions` — filtered to the caller's own transactions on `date`.
+- `staff_revenue` — always an empty array for kasir/kurir.
+- `low_stock_count`, `total_outstanding_debt`, `warehouse_stock`, `customer_debts` — always store-wide (same for all roles).
+
+*Frontend-side hiding:*
+- **Biaya Pembelian stat card** — hidden for kasir and kurir.
+- **Biaya Pembelian row in the bar chart detail panel** — hidden for kasir and kurir.
+- **Pendapatan per Staf section** — hidden for kasir and kurir (FR-DSH-010).
+
+*Navigation:*
+- `/dashboard` route is accessible to `['owner', 'kasir', 'kurir']`.
+- Bottom Navigation for kasir and kurir gains a **Dashboard** item as the first entry (was 4 items; now 5).
+
 ### 13.3 UI Behavior
 
-- **Layout:** 2×3 stat card grid on mobile (2 columns, 3 rows), wider grid on tablet+ 
+- **Layout:** 2×3 stat card grid on mobile (2 columns, 3 rows), wider grid on tablet+. For kasir/kurir the Biaya Pembelian card is hidden, resulting in a 2×2 (or adjusted) grid.
 - **Date filter:** Date picker rendered at the top of the dashboard page; defaults to today. Changing the date immediately re-fetches `GET /api/dashboard?date=YYYY-MM-DD` and updates all sections. A `"Hari Ini"` shortcut button resets the filter to today.
 - **Revenue % delta:** The Pendapatan card displays a secondary line showing `↑ +X%` (green) or `↓ -X%` (red) comparing today's revenue to the previous day (`previous_day_revenue`). Hidden when previous day revenue = 0.
 - **Weekly bar chart:** Interactive Chart.js vertical bar chart — 7 bars, one per day; x-axis short day labels (`Sen`, `Sel`, …); y-axis abbreviated IDR; selected-date bar is highlighted with a darker shade; each bar is clickable.
-- **Chart detail panel:** Appears inline below the chart when a bar is clicked — shows date, revenue, transaction count, purchase cost, and average per transaction for that day. Dismissed by clicking the same bar again or ✕. Resets on date filter change.
-- **Stat cards:** Pendapatan, Transaksi, Biaya Pembelian, Pembayaran Hutang Diterima (blue), Stok Rendah (yellow, badge if > 0), Total Hutang Pelanggan (danger red)
+- **Chart detail panel:** Appears inline below the chart when a bar is clicked — shows date, revenue, transaction count, and average per transaction for that day. The **Biaya Pembelian row is hidden for kasir and kurir**. Dismissed by clicking the same bar again or ✕. Resets on date filter change.
+- **Stat cards (owner):** Pendapatan, Biaya Pembelian, Pembayaran Hutang Diterima, Total Hutang Pelanggan, Transaksi, Stok Rendah.
+- **Stat cards (kasir/kurir):** Pendapatan, Pembayaran Hutang Diterima, Total Hutang Pelanggan, Transaksi, Stok Rendah (Biaya Pembelian hidden).
 - **Last updated:** `"Terakhir diperbarui: Xm Xs yang lalu"`
 - **Low stock:** Warning badge on products ≤ 5
-- **Recent transactions:** 10 rows inline, not paginated; each row is **clickable** to open a Detail Transaksi modal (FR-DSH-008)
-- **Customer debt section (FR-DSH-009):** Below Transaksi Terkini; always shows current state; not date-filtered; sorted by debt descending
+- **Recent transactions:** 10 rows inline, not paginated; each row is **clickable** to open a Detail Transaksi modal (FR-DSH-008). For kasir/kurir only their own transactions are shown.
+- **Customer debt section (FR-DSH-009):** Below Transaksi Terkini; always shows current store-wide state; not date-filtered; sorted by debt descending. Shown to all roles.
+- **Staff revenue pie chart (FR-DSH-010):** Positioned below "Pendapatan 7 Hari"; filtered by selected date; only completed transactions; staff with revenue = 0 excluded; legend shows name + %; empty state: `"Tidak ada data pendapatan untuk hari ini."` **Hidden entirely for kasir and kurir.**
 - **Empty state (chart):** `"Tidak ada data pendapatan untuk minggu ini."`
 - **Empty state (transactions):** `"Belum ada transaksi tercatat pada tanggal ini."`
 
@@ -975,7 +1006,7 @@ The dashboard shall include a **"Hutang Pelanggan"** section positioned below Tr
 | **Payments** — Standalone debt payment | ✅ | ❌ | ❌ |
 | **Container Loans** — View / standalone return | ✅ | ❌ | ❌ |
 | **Container Loans** — Return during transaction | ✅ | ✅ | ✅ |
-| **Dashboard** | ✅ | ❌ (redirect) | ❌ (redirect) |
+| **Dashboard** | ✅ (full view) | ✅ (user-scoped, owner-only sections hidden) | ✅ (user-scoped, owner-only sections hidden) |
 
 ---
 

@@ -349,7 +349,7 @@ GET    /api/cash-flow               -- owner only; ?date=YYYY-MM-DD (optional, d
                                    -- }
                                    -- CashFlowEntry: { id, flow_type, category, amount, description, reference_id?, created_by_name, created_at }
 
-GET    /api/dashboard               -- owner only, polled summary; ?date=YYYY-MM-DD (optional, defaults to today WIB)
+GET    /api/dashboard               -- all authenticated roles; stats scoped to caller for kasir/kurir; ?date=YYYY-MM-DD (optional, defaults to today WIB)
                                    -- response includes: summary stats for selected date, weekly_chart[7] ({ date, revenue, transaction_count, purchase_cost }),
                                    --   recent_transactions (for selected date), warehouse_stock (current state, not date-filtered),
                                    --   previous_day_revenue, customer_debts (current state, not date-filtered):
@@ -374,7 +374,7 @@ src/
 │   └── layout/              -- Navbar, BottomNav (all roles use mobile nav)
 ├── pages/
 │   ├── Login/
-│   ├── Dashboard/           -- owner only
+│   ├── Dashboard/           -- all roles (kasir/kurir see user-scoped stats; owner-only sections hidden for others)
 │   ├── Lainnya/             -- owner only; route: /lainnya; hub linking to Users, Products, Locations, DebtPayments, CashFlow, Profile, Logout (renamed from Settings/)
 │   ├── Profile/             -- all roles; view/edit own name and password; logout (kurir/kasir)
   ├── Stock/               -- StockLevels (all roles); Riwayat tab (all roles); Kontainer tab (owner only); Terima/Tukar Agent/Defek (owner only); Transfer + Produksi (owner and kasir)

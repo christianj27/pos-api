@@ -1041,7 +1041,7 @@ Returns the raw event log (not aggregated). Each record represents a single loan
 ## 13. Dashboard
 
 ### GET /api/dashboard
-**Auth**: Owner only
+**Auth**: All authenticated roles (owner, kasir, kurir). For kasir/kurir, transaction-derived stats are scoped to the caller's own records; `staff_revenue` is always empty.
 
 **Query Params**
 | Param | Type | Required | Notes |
@@ -1051,19 +1051,19 @@ Returns the raw event log (not aggregated). Each record represents a single loan
 **Response `200`**
 | Field | Type | Notes |
 |---|---|---|
-| `today_revenue` | number | Total `paid_amount` from completed transactions on `date` |
-| `today_transactions` | number | Count of completed transactions on `date` |
-| `today_purchase_cost` | number | Total `purchase_cost` from stock movements on `date` |
-| `today_debt_collected` | number | Total standalone debt payments received on `date` |
-| `low_stock_count` | number | Count of product/location combinations below threshold |
-| `total_outstanding_debt` | number | Aggregate outstanding debt across all customers (current state, not date-filtered) |
-| `previous_day_revenue` | number | Total revenue from the day before `date` |
-| `weekly_chart` | array | 7 entries; last 7 days ending on `date` (index 6 = `date`) |
+| `today_revenue` | number | Total `paid_amount` from caller's completed transactions on `date` (all roles for owner; own transactions for kasir/kurir) |
+| `today_transactions` | number | Count of caller's completed transactions on `date` |
+| `today_purchase_cost` | number | Total `purchase_cost` from stock movements on `date` (owner: all; kasir/kurir: own movements) |
+| `today_debt_collected` | number | Total standalone debt payments received on `date` (owner: all; kasir/kurir: own) |
+| `low_stock_count` | number | Count of product/location combinations below threshold (store-wide, all roles) |
+| `total_outstanding_debt` | number | Aggregate outstanding debt across all customers (store-wide, all roles; current state, not date-filtered) |
+| `previous_day_revenue` | number | Total revenue from the day before `date` (scoped same as `today_revenue`) |
+| `weekly_chart` | array | 7 entries; last 7 days ending on `date` (index 6 = `date`); revenue/transaction_count scoped to caller for kasir/kurir |
 | `weekly_chart[].date` | string (YYYY-MM-DD) | — |
 | `weekly_chart[].revenue` | number | — |
 | `weekly_chart[].transaction_count` | number | — |
 | `weekly_chart[].purchase_cost` | number | — |
-| `recent_transactions` | array | Transactions on `date`; sorted newest first |
+| `recent_transactions` | array | Transactions on `date`; sorted newest first; scoped to caller for kasir/kurir |
 | `recent_transactions[].id` | string (UUID) | — |
 | `recent_transactions[].created_at` | string (ISO 8601) | — |
 | `recent_transactions[].customer_name` | string \| null | — |

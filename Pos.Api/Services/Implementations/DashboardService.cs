@@ -2,40 +2,45 @@ using Microsoft.EntityFrameworkCore;
 using Pos.Api.Data;
 using Pos.Api.Data.Enums;
 using Pos.Api.DTOs.Dashboard;
+using Pos.Api.Models;
 using Pos.Api.Services.Interfaces;
 
 namespace Pos.Api.Services.Implementations;
 
 public class DashboardService(AppDbContext db) : IDashboardService
 {
-    public async Task<DashboardResponse> GetDashboardAsync(DateOnly date)
+    public async Task<DashboardResponse> GetDashboardAsync(DateOnly date, Guid userId, string role)
     {
+        var isOwner = role == "owner";
         var (start, end) = WibTimeZone.GetUtcDayBounds(date);
 
-        // Summary stats for selected date
-        var todayRevenue = await db.Transactions
-            .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= start && t.CreatedAt < end)
-            .SumAsync(t => t.PaidAmount);
+        // Summary stats — scoped to userId for non-owners
+        IQueryable<Transaction> dayTxBase = db.Transactions
+            .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= start && t.CreatedAt < end);
+        if (!isOwner) dayTxBase = dayTxBase.Where(t => t.StaffId == userId);
 
-        var todayTransactions = await db.Transactions
-            .CountAsync(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= start && t.CreatedAt < end);
+        var todayRevenue      = await dayTxBase.SumAsync(t => t.PaidAmount);
+        var todayTransactions = await dayTxBase.CountAsync();
 
-        var todayPurchaseCost = await db.StockMovements
-            .Where(m => m.PurchaseCost != null && m.CreatedAt >= start && m.CreatedAt < end)
-            .SumAsync(m => m.PurchaseCost ?? 0);
+        IQueryable<StockMovement> dayMvBase = db.StockMovements
+            .Where(m => m.PurchaseCost != null && m.CreatedAt >= start && m.CreatedAt < end);
+        if (!isOwner) dayMvBase = dayMvBase.Where(m => m.CreatedBy == userId);
+        var todayPurchaseCost = await dayMvBase.SumAsync(m => m.PurchaseCost ?? 0);
 
-        var todayDebtCollected = await db.DebtPayments
-            .Where(dp => dp.CreatedAt >= start && dp.CreatedAt < end)
-            .SumAsync(dp => dp.Amount);
+        IQueryable<DebtPayment> dayDpBase = db.DebtPayments
+            .Where(dp => dp.CreatedAt >= start && dp.CreatedAt < end);
+        if (!isOwner) dayDpBase = dayDpBase.Where(dp => dp.CreatedBy == userId);
+        var todayDebtCollected = await dayDpBase.SumAsync(dp => dp.Amount);
 
         // Previous day revenue
         var prevDate = date.AddDays(-1);
         var (prevStart, prevEnd) = WibTimeZone.GetUtcDayBounds(prevDate);
-        var prevRevenue = await db.Transactions
-            .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= prevStart && t.CreatedAt < prevEnd)
-            .SumAsync(t => t.PaidAmount);
+        IQueryable<Transaction> prevTxBase = db.Transactions
+            .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= prevStart && t.CreatedAt < prevEnd);
+        if (!isOwner) prevTxBase = prevTxBase.Where(t => t.StaffId == userId);
+        var prevRevenue = await prevTxBase.SumAsync(t => t.PaidAmount);
 
-        // Low stock (warehouse only, active products <= 5)
+        // Low stock (warehouse only, active products <= 5) — always store-wide
         var warehouseLoc = await db.Locations.FirstOrDefaultAsync(l => l.Type == LocationType.Warehouse && l.IsActive);
         int lowStockCount = 0;
         if (warehouseLoc is not null)
@@ -44,32 +49,34 @@ public class DashboardService(AppDbContext db) : IDashboardService
             lowStockCount = levels.Count(s => (s.QuantityTotal ?? s.QuantityFilled ?? 0) <= 5);
         }
 
-        // Weekly chart -- 7 days ending on selected date
+        // Weekly chart — 7 days ending on selected date, scoped to userId for non-owners
         var weeklyChart = new List<WeeklyChartEntry>();
         for (int i = 6; i >= 0; i--)
         {
             var day = date.AddDays(-i);
             var (dStart, dEnd) = WibTimeZone.GetUtcDayBounds(day);
 
-            var revenue = await db.Transactions
-                .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= dStart && t.CreatedAt < dEnd)
-                .SumAsync(t => t.PaidAmount);
+            IQueryable<Transaction> wTxQuery = db.Transactions
+                .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= dStart && t.CreatedAt < dEnd);
+            if (!isOwner) wTxQuery = wTxQuery.Where(t => t.StaffId == userId);
+            var revenue = await wTxQuery.SumAsync(t => t.PaidAmount);
+            var txCount = await wTxQuery.CountAsync();
 
-            var txCount = await db.Transactions
-                .CountAsync(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= dStart && t.CreatedAt < dEnd);
-
-            var purchaseCost = await db.StockMovements
-                .Where(m => m.PurchaseCost != null && m.CreatedAt >= dStart && m.CreatedAt < dEnd)
-                .SumAsync(m => m.PurchaseCost ?? 0);
+            IQueryable<StockMovement> wMvQuery = db.StockMovements
+                .Where(m => m.PurchaseCost != null && m.CreatedAt >= dStart && m.CreatedAt < dEnd);
+            if (!isOwner) wMvQuery = wMvQuery.Where(m => m.CreatedBy == userId);
+            var purchaseCost = await wMvQuery.SumAsync(m => m.PurchaseCost ?? 0);
 
             weeklyChart.Add(new WeeklyChartEntry(day.ToString("yyyy-MM-dd"), revenue, txCount, purchaseCost));
         }
 
-        // Recent transactions for selected date (10 most recent) -- slim projection
-        var recentTxns = await db.Transactions
+        // Recent transactions — scoped to userId for non-owners
+        IQueryable<Transaction> recentQuery = db.Transactions
             .Include(t => t.Customer)
             .Include(t => t.Staff)
-            .Where(t => t.CreatedAt >= start && t.CreatedAt < end)
+            .Where(t => t.CreatedAt >= start && t.CreatedAt < end && t.Status == TransactionStatus.Completed);
+        if (!isOwner) recentQuery = recentQuery.Where(t => t.StaffId == userId);
+        var recentTxns = await recentQuery
             .OrderByDescending(t => t.CreatedAt)
             .Take(10)
             .ToListAsync();
@@ -79,34 +86,38 @@ public class DashboardService(AppDbContext db) : IDashboardService
             t.Staff.Name, t.Status.ToString().ToLower(),
             t.TotalAmount, t.PaidAmount, t.CreatedAt));
 
-        // Staff revenue for selected date (FR-DSH-010)
-        var staffAggregates = await db.Transactions
-            .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= start && t.CreatedAt < end)
-            .GroupBy(t => t.StaffId)
-            .Select(g => new { StaffId = g.Key, Revenue = g.Sum(t => t.PaidAmount), Count = g.Count() })
-            .ToListAsync();
+        // Staff revenue (FR-DSH-010) — owner only
+        List<StaffRevenueSummary> staffRevenue = [];
+        if (isOwner)
+        {
+            var staffAggregates = await db.Transactions
+                .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= start && t.CreatedAt < end)
+                .GroupBy(t => t.StaffId)
+                .Select(g => new { StaffId = g.Key, Revenue = g.Sum(t => t.PaidAmount), Count = g.Count() })
+                .ToListAsync();
 
-        var staffIds = staffAggregates.Select(a => a.StaffId).ToList();
-        var staffNames = await db.Users
-            .Where(u => staffIds.Contains(u.Id))
-            .Select(u => new { u.Id, u.Name })
-            .ToDictionaryAsync(u => u.Id, u => u.Name);
+            var staffIds = staffAggregates.Select(a => a.StaffId).ToList();
+            var staffNames = await db.Users
+                .Where(u => staffIds.Contains(u.Id))
+                .Select(u => new { u.Id, u.Name })
+                .ToDictionaryAsync(u => u.Id, u => u.Name);
 
-        var staffRevenue = staffAggregates
-            .Select(a => new StaffRevenueSummary(
-                a.StaffId,
-                staffNames.GetValueOrDefault(a.StaffId, "Unknown"),
-                a.Revenue,
-                a.Count))
-            .OrderByDescending(s => s.Revenue)
-            .ToList();
+            staffRevenue = staffAggregates
+                .Select(a => new StaffRevenueSummary(
+                    a.StaffId,
+                    staffNames.GetValueOrDefault(a.StaffId, "Unknown"),
+                    a.Revenue,
+                    a.Count))
+                .OrderByDescending(s => s.Revenue)
+                .ToList();
+        }
 
-        // Warehouse stock (current state, not date-filtered)
+        // Warehouse stock (current state, not date-filtered) — always store-wide
         var warehouseStock = warehouseLoc is not null
             ? await GetWarehouseStockAsync(warehouseLoc.Id, warehouseLoc.Name)
             : Enumerable.Empty<WarehouseStockItem>();
 
-        // Customer debts (current state, sorted by debt desc)
+        // Customer debts (current state, sorted by debt desc) — always store-wide
         var customers = await db.Customers.Where(c => c.IsActive).ToListAsync();
         var customerDebts = new List<CustomerDebtSummary>();
         foreach (var c in customers)
