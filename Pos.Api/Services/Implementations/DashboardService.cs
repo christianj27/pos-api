@@ -122,13 +122,14 @@ public class DashboardService(AppDbContext db) : IDashboardService
         var customerDebts = new List<CustomerDebtSummary>();
         foreach (var c in customers)
         {
+            var initialDebt = c.InitialDebt;
             var txDebt = await db.Transactions
                 .Where(t => t.CustomerId == c.Id && t.Status != TransactionStatus.Cancelled)
                 .SumAsync(t => t.DebtAmount);
             var debtPaid = await db.DebtPayments
                 .Where(dp => dp.CustomerId == c.Id)
                 .SumAsync(dp => dp.Amount);
-            var outstanding = txDebt - debtPaid;
+            var outstanding = initialDebt + txDebt - debtPaid;
             if (outstanding > 0)
                 customerDebts.Add(new CustomerDebtSummary(c.Id, c.Name, outstanding));
         }
