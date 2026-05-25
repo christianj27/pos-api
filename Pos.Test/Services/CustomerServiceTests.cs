@@ -296,4 +296,30 @@ public class CustomerServiceTests
         Assert.Null(result);
     }
 
+    // ── InitialDebt ────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Create_WithInitialDebt_PersistsInitialDebt()
+    {
+        var req = new CreateCustomerRequest("Debtor Init", null, null, 50000m);
+        var (result, err) = await _sut.CreateAsync(req);
+
+        Assert.Null(err);
+        Assert.NotNull(result);
+        var stored = _db.Customers.First(c => c.Id == result!.Id);
+        Assert.Equal(50000m, stored.InitialDebt);
     }
+
+    [Fact]
+    public async Task GetDebt_InitialDebt_IsIncludedInOutstandingDebt()
+    {
+        var req = new CreateCustomerRequest("Init Debt User", null, null, 30000m);
+        var (result, _) = await _sut.CreateAsync(req);
+
+        var debt = await _sut.GetDebtAsync(result!.Id);
+
+        Assert.Equal(30000m, debt!.OutstandingDebt);
+    }
+
+    }
+

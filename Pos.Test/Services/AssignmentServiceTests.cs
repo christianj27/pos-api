@@ -52,7 +52,7 @@ public class AssignmentServiceTests
     }
 
     private CreateAssignmentRequest MakeRequest() =>
-        new(KurirId, CustomerId,
+        new(KurirId, CustomerId, VehicleId,
             new[] { new AssignmentItemRequest(ProductId, 3, 5000m) },
             "Tolong cepat");
 
@@ -73,7 +73,7 @@ public class AssignmentServiceTests
     [Fact]
     public async Task Create_InvalidKurir_NonExistent_ReturnsError()
     {
-        var req = new CreateAssignmentRequest(Guid.NewGuid(), CustomerId,
+        var req = new CreateAssignmentRequest(Guid.NewGuid(), CustomerId, VehicleId,
             new[] { new AssignmentItemRequest(ProductId, 1, 5000m) }, null);
 
         var (result, err) = await _sut.CreateAsync(req, OwnerId);
@@ -86,7 +86,7 @@ public class AssignmentServiceTests
     public async Task Create_KasirAsKurir_ReturnsError()
     {
         // KasirId is a Kasir role, not Kurir
-        var req = new CreateAssignmentRequest(KasirId, CustomerId,
+        var req = new CreateAssignmentRequest(KasirId, CustomerId, VehicleId,
             new[] { new AssignmentItemRequest(ProductId, 1, 5000m) }, null);
 
         var (result, err) = await _sut.CreateAsync(req, OwnerId);
@@ -102,7 +102,7 @@ public class AssignmentServiceTests
         _db.Customers.Add(new Customer { Id = inactiveCustId, Name = "Inactive", IsActive = false });
         _db.SaveChanges();
 
-        var req = new CreateAssignmentRequest(KurirId, inactiveCustId,
+        var req = new CreateAssignmentRequest(KurirId, inactiveCustId, VehicleId,
             new[] { new AssignmentItemRequest(ProductId, 1, 5000m) }, null);
 
         var (result, err) = await _sut.CreateAsync(req, OwnerId);
@@ -114,7 +114,7 @@ public class AssignmentServiceTests
     [Fact]
     public async Task Create_UnknownCustomer_ReturnsError()
     {
-        var req = new CreateAssignmentRequest(KurirId, Guid.NewGuid(),
+        var req = new CreateAssignmentRequest(KurirId, Guid.NewGuid(), VehicleId,
             new[] { new AssignmentItemRequest(ProductId, 1, 5000m) }, null);
 
         var (result, err) = await _sut.CreateAsync(req, OwnerId);
@@ -130,7 +130,7 @@ public class AssignmentServiceTests
     {
         // Kurir1 gets one assignment, Kurir2 gets another
         await _sut.CreateAsync(MakeRequest(), OwnerId);
-        await _sut.CreateAsync(new CreateAssignmentRequest(Kurir2Id, CustomerId,
+        await _sut.CreateAsync(new CreateAssignmentRequest(Kurir2Id, CustomerId, VehicleId,
             new[] { new AssignmentItemRequest(ProductId, 1, 5000m) }, null), OwnerId);
 
         var kurir1Assignments = (await _sut.GetAllAsync(KurirId, "kurir")).ToList();
@@ -142,7 +142,7 @@ public class AssignmentServiceTests
     public async Task GetAll_OwnerRole_SeesAllAssignments()
     {
         await _sut.CreateAsync(MakeRequest(), OwnerId);
-        await _sut.CreateAsync(new CreateAssignmentRequest(Kurir2Id, CustomerId,
+        await _sut.CreateAsync(new CreateAssignmentRequest(Kurir2Id, CustomerId, VehicleId,
             new[] { new AssignmentItemRequest(ProductId, 1, 5000m) }, null), OwnerId);
 
         var all = (await _sut.GetAllAsync(OwnerId, "owner")).ToList();
@@ -157,7 +157,7 @@ public class AssignmentServiceTests
     public async Task Fulfill_ValidRequest_CreatesTransactionAndMarksFulfilled()
     {
         var (assignment, _) = await _sut.CreateAsync(MakeRequest(), OwnerId);
-        var fulfillReq = new FulfillAssignmentRequest(15000m, "cash", null, null, null);
+        var fulfillReq = new FulfillAssignmentRequest(15000m, "cash", null, null, null, null);
 
         var (success, err) = await _sut.FulfillAsync(assignment!.Id, fulfillReq, KurirId);
 
@@ -173,7 +173,7 @@ public class AssignmentServiceTests
     public async Task Fulfill_AlreadyFulfilled_ReturnsError()
     {
         var (assignment, _) = await _sut.CreateAsync(MakeRequest(), OwnerId);
-        var fulfillReq = new FulfillAssignmentRequest(15000m, "cash", null, null, null);
+        var fulfillReq = new FulfillAssignmentRequest(15000m, "cash", null, null, null, null);
         await _sut.FulfillAsync(assignment!.Id, fulfillReq, KurirId);
 
         var (success, err) = await _sut.FulfillAsync(assignment.Id, fulfillReq, KurirId);
@@ -186,7 +186,7 @@ public class AssignmentServiceTests
     public async Task Fulfill_WrongKurir_ReturnsError()
     {
         var (assignment, _) = await _sut.CreateAsync(MakeRequest(), OwnerId);
-        var fulfillReq = new FulfillAssignmentRequest(15000m, "cash", null, null, null);
+        var fulfillReq = new FulfillAssignmentRequest(15000m, "cash", null, null, null, null);
 
         // Kurir2 tries to fulfill Kurir1's assignment
         var (success, err) = await _sut.FulfillAsync(assignment!.Id, fulfillReq, Kurir2Id);
@@ -196,25 +196,27 @@ public class AssignmentServiceTests
     }
 
     [Fact]
-    public async Task Fulfill_KurirHasNoVehicle_ReturnsError()
+    public async Task Fulfill_Kurir2WithExplicitLocation_Succeeds()
     {
-        // Create assignment for Kurir2 who has no vehicle
+        // With the new CreateAssignmentRequest contract, LocationId is always explicit.
+        // The service uses the stored location directly and never looks up a vehicle;
+        // Kurir2 not having an assigned vehicle is therefore not a blocking condition.
         var (assignment, _) = await _sut.CreateAsync(
-            new CreateAssignmentRequest(Kurir2Id, CustomerId,
+            new CreateAssignmentRequest(Kurir2Id, CustomerId, VehicleId,
                 new[] { new AssignmentItemRequest(ProductId, 1, 5000m) }, null),
             OwnerId);
 
-        var fulfillReq = new FulfillAssignmentRequest(5000m, "cash", null, null, null);
+        var fulfillReq = new FulfillAssignmentRequest(5000m, "cash", null, null, null, null);
         var (success, err) = await _sut.FulfillAsync(assignment!.Id, fulfillReq, Kurir2Id);
 
-        Assert.False(success);
-        Assert.NotNull(err);
+        Assert.True(success);
+        Assert.Null(err);
     }
 
     [Fact]
     public async Task Fulfill_NonExistentAssignment_ReturnsError()
     {
-        var fulfillReq = new FulfillAssignmentRequest(5000m, "cash", null, null, null);
+        var fulfillReq = new FulfillAssignmentRequest(5000m, "cash", null, null, null, null);
         var (success, err) = await _sut.FulfillAsync(Guid.NewGuid(), fulfillReq, KurirId);
 
         Assert.False(success);
@@ -252,7 +254,7 @@ public class AssignmentServiceTests
     public async Task Cancel_FulfilledAssignment_ReturnsError()
     {
         var (assignment, _) = await _sut.CreateAsync(MakeRequest(), OwnerId);
-        var fulfillReq = new FulfillAssignmentRequest(15000m, "cash", null, null, null);
+        var fulfillReq = new FulfillAssignmentRequest(15000m, "cash", null, null, null, null);
         await _sut.FulfillAsync(assignment!.Id, fulfillReq, KurirId);
 
         var (success, err) = await _sut.CancelAsync(assignment.Id, OwnerId, "owner");

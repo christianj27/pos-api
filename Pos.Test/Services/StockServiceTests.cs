@@ -226,7 +226,7 @@ public class StockServiceTests
     public async Task CreateMovement_InvalidContainerStatus_ReturnsError()
     {
         var req = new CreateMovementRequest(
-            SimpleProductId, "receive", "badstatus", 1,
+            RefillableProductId, "receive", "badstatus", 1,
             null, LocationId, null, null);
 
         var (success, error) = await _sut.CreateMovementAsync(req, CreatorId);
