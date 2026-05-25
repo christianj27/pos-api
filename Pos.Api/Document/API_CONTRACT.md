@@ -341,11 +341,14 @@ Returns the authenticated user's own record only.
 | `phone` | string \| null | — |
 | `address` | string \| null | — |
 | `is_active` | boolean | — |
+| `is_confidential` | boolean | `true` = only visible to owners; always `false` in responses for non-owner callers (field omitted from their view via server-side filtering) |
 | `created_at` | string (ISO 8601) | — |
 | `outstanding_debt` | number | Net debt: `initial_debt + SUM(transaction debt_amounts) - SUM(debt_payments)` (Rupiah) |
 | `initial_debt` | number | Opening balance carried forward from paper records; `0` by default |
 
 > ✅ **Known gap #1 (resolved)**: `outstanding_debt` is now included in the Customer object. Backend `CustomerResponse` computes it as `initial_debt + SUM(transactions.debt_amount) - SUM(debt_payments.amount)` per customer.
+
+> ℹ️ **Confidential filtering**: When the caller's role is `kasir` or `kurir`, customers with `is_confidential = true` are **excluded entirely** from the response array. Owners receive all customers.
 
 ---
 
@@ -359,6 +362,7 @@ Returns the authenticated user's own record only.
 | `phone` | string | ❌ | max 20 chars |
 | `address` | string | ❌ | — |
 | `initial_debt` | number | ❌ | Opening balance ≥ 0; defaults to `0` |
+| `is_confidential` | boolean | ❌ | `true` hides the customer from kasir/kurir; defaults to `false` |
 
 **Response `201`** — Customer object.
 
@@ -377,6 +381,7 @@ Returns the authenticated user's own record only.
 | `address` | string \| null | ❌ | — |
 | `is_active` | boolean | ❌ | Set `false` to deactivate customer |
 | `initial_debt` | number | ❌ | Opening balance ≥ 0; replaces previous value when provided |
+| `is_confidential` | boolean | ❌ | Owner only — ignored when sent by kasir/kurir |
 
 **Response `200`** — updated Customer object.
 
@@ -534,7 +539,6 @@ Returns aggregated (net) container balances per product, not a raw event log.
 | `note` | string \| null | — |
 | `created_by_name` | string | — |
 | `created_at` | string (ISO 8601) | — |
-| `customer_name` | string \| null | Customer name for dispatch movements; null for all other types |
 
 > ⚠️ **Known gap #6 (resolved)**: Frontend `StockMovement.note` now matches backend `note` field.
 
@@ -1009,7 +1013,11 @@ Returns the raw event log (not aggregated). Each record represents a single loan
 **Query Params**
 | Param | Type | Required | Notes |
 |---|---|---|---|
-| `date` | string (YYYY-MM-DD) | ❌ | WIB date filter; defaults to today WIB |
+| `date` | string (YYYY-MM-DD) | ❌ | Single WIB date filter; defaults to today WIB. Ignored when `start_date` + `end_date` are both provided. |
+| `start_date` | string (YYYY-MM-DD) | ❌ | Range start (WIB). Must be paired with `end_date`. |
+| `end_date` | string (YYYY-MM-DD) | ❌ | Range end (WIB, inclusive). Must be paired with `start_date`. |
+
+> When both `start_date` and `end_date` are present, the response aggregates all entries across the full date range (e.g. an entire calendar month). The `date` param is ignored in this case.
 
 **Response `200`**
 | Field | Type | Notes |
@@ -1077,6 +1085,11 @@ Returns the raw event log (not aggregated). Each record represents a single loan
 | `customer_debts[].customer_id` | string (UUID) | — |
 | `customer_debts[].customer_name` | string | — |
 | `customer_debts[].outstanding_debt` | number | — |
+| `staff_revenue` | array | Revenue breakdown per staff member for completed transactions on `date`; sorted by revenue descending |
+| `staff_revenue[].staff_id` | string (UUID) | — |
+| `staff_revenue[].staff_name` | string | — |
+| `staff_revenue[].revenue` | number | Sum of `paid_amount` for completed transactions created by this staff member on `date` |
+| `staff_revenue[].transaction_count` | number | Count of completed transactions created by this staff member on `date` |
 
 ---
 

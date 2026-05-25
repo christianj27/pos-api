@@ -8,9 +8,10 @@ namespace Pos.Api.Services.Implementations;
 
 public class CustomerService(AppDbContext db) : ICustomerService
 {
-    public async Task<IEnumerable<CustomerResponse>> GetAllAsync(bool activeOnly = false)
+    public async Task<IEnumerable<CustomerResponse>> GetAllAsync(bool activeOnly = false, string? userRole = null)
     {
         var q = db.Customers.AsQueryable();
+        if (userRole != "owner") q = q.Where(c => !c.IsConfidential);
         if (activeOnly) q = q.Where(c => c.IsActive);
 
         var customers = await q.OrderBy(c => c.IsActive ? 0 : 1).ThenBy(c => c.Name).ToListAsync();
@@ -61,7 +62,8 @@ public class CustomerService(AppDbContext db) : ICustomerService
             Name = request.Name.Trim(),
             Phone = request.Phone?.Trim(),
             Address = request.Address?.Trim(),
-            InitialDebt = request.InitialDebt ?? 0m
+            InitialDebt = request.InitialDebt ?? 0m,
+            IsConfidential = request.IsConfidential ?? false
         };
         db.Customers.Add(customer);
         await db.SaveChangesAsync();
@@ -82,6 +84,8 @@ public class CustomerService(AppDbContext db) : ICustomerService
         customer.IsActive = request.IsActive;
         if (request.InitialDebt.HasValue)
             customer.InitialDebt = request.InitialDebt.Value;
+        if (request.IsConfidential.HasValue)
+            customer.IsConfidential = request.IsConfidential.Value;
         await db.SaveChangesAsync();
 
         var totalDebt = await db.Transactions
@@ -204,5 +208,5 @@ public class CustomerService(AppDbContext db) : ICustomerService
     }
 
     private static CustomerResponse MapToResponse(Customer c, decimal outstandingDebt) =>
-        new(c.Id, c.Name, c.Phone, c.Address, c.IsActive, c.CreatedAt, outstandingDebt);
+        new(c.Id, c.Name, c.Phone, c.Address, c.IsActive, c.IsConfidential, c.CreatedAt, outstandingDebt);
 }

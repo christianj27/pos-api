@@ -4,5 +4,6 @@ public record CreateCustomerRequest(
     string Name,
     string? Phone,
     string? Address,
-    decimal? InitialDebt = null
+    decimal? InitialDebt = null,
+    bool? IsConfidential = null
 );

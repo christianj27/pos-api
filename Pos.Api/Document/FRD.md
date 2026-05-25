@@ -7,7 +7,11 @@
 
 | Version | Date | Author | Changes |
 |---|---|---|---------|
+| 4.3 | May 25, 2026 | — | FR-CST-008 — Konfidensial Pelanggan: Owner dapat menandai pelanggan sebagai konfidensial menggunakan toggle checkbox pada form buat/edit pelanggan. Pelanggan konfidensial hanya terlihat oleh owner — kasir dan kurir tidak dapat melihatnya di daftar `CustomersPage` maupun di pemilih pelanggan (Langkah 1) `TransactionsPage`. Filter diterapkan server-side: `GET /api/customers` menyaring `is_confidential = true` untuk pemanggil non-owner. Owner melihat badge "Konfidensial" (pink) pada kartu pelanggan di daftar. Backend: field `IsConfidential` (boolean, default `false`) ditambahkan ke model `Customer`; field disertakan di `CustomerResponse`, `CreateCustomerRequest`, `UpdateCustomerRequest`; `CustomerService.GetAllAsync` menerima parameter `userRole` dan menerapkan filter kondisional; `CustomersController` mengambil role dari JWT claims dan meneruskannya ke service; perubahan `is_confidential` dalam `PUT /api/customers/{id}` diabaikan untuk non-owner. EF migration baru: `AddConfidentialToCustomer`. Frontend: field `isConfidential?` ditambahkan ke tipe `Customer`; `customerService.list(role?)` menerima role untuk simulasi filter mock; `CustomersPage` menampilkan checkbox "Konfidensial" (owner-only) di form dan badge pada kartu; `TransactionsPage.load()` meneruskan role ke `customerService.list()`. |
 | 4.2 | May 22, 2026 | — | FR-DSH-011 — Dashboard accessible to all roles (owner, kasir, kurir). Kasir/kurir restrictions: Biaya Pembelian stat card hidden; Biaya Pembelian row in bar chart detail panel hidden; Pendapatan per Staf pie chart section hidden. All transaction-derived stats (Pendapatan, Transaksi, Biaya Pembelian, Piutang Terbayar, Pendapatan 7 Hari, Transaksi Terkini) scoped server-side to the authenticated user for kasir/kurir. Hutang Pelanggan, Stok Gudang, Stok Rendah shown store-wide for all roles. Backend: `DashboardController` authorization changed from `OwnerOnly` to `Authorize` (all authenticated); `userId` and `role` extracted from JWT claims; `DashboardService.GetDashboardAsync` accepts `userId` + `role`, uses `IQueryable<T>` with conditional `.Where(t => t.StaffId == userId)` / `.Where(m => m.CreatedBy == userId)` for non-owners; `staffRevenue` always empty for kasir/kurir. Frontend: `/dashboard` route allows `['owner','kasir','kurir']`; BottomNav adds Dashboard as first item for kasir/kurir (4→5 items each); `DashboardPage` uses `useAuth()` and conditionally hides owner-only sections. |
+| 4.1 | May 21, 2026 | — | FR-ASG-LOC — Assignment location selection: Owner/Kasir must pick a stock source location (any active warehouse or vehicle) in Step 1 of assignment creation. The chosen location is stored on the assignment (`location_id`) and pre-filled + locked as the Lokasi Stok when Kurir fulfills the assignment in the transaction overlay. Kurir's own new (non-assignment) delivery transactions continue to auto-fill from the kurir's assigned vehicle as before. Backend: `location_id` (nullable UUID FK) added to `DeliveryAssignments`; `CreateAssignmentRequest` extended with required `LocationId`; `AssignmentResponse` returns `location_id` + `location_name`; `FulfillAsync` uses stored location with vehicle fallback for old records. New EF migration `AddLocationToAssignment`. Frontend: `DeliveryAssignment` type extended; `assignmentService` updated; `TransactionsPage` Step 1 gains a location picker and the Step 2 locked fields show Lokasi Stok. |
+| 4.0 | May 21, 2026 | — | FR-DSH-010 — Pendapatan per Staf pie chart: Owner sees a pie chart below "Pendapatan 7 Hari" on the Dashboard showing revenue (`paid_amount`) per staff member for the selected date. Only completed transactions are counted. Each slice is labelled with the staff name and percentage share; tooltip shows formatted currency + percentage. Empty state shown when no revenue exists for the selected date. Backend `GET /api/dashboard` response extended with `staff_revenue` array (`staff_id`, `staff_name`, `revenue`, `transaction_count`); sorted by revenue descending. No new endpoint. Frontend: `PieController`, `ArcElement`, `Legend` added to Chart.js registry; new `StaffRevenueSummary` type; mock computes from `recentTransactions` seed data. |
+| 3.9 | May 20, 2026 | — | FR-CSH-005 — Monthly cash flow export to XLSX: Owner can pick a calendar month (month/year picker, default = current month, max = current month) on the Arus Kas page and download a `.xlsx` report covering the entire calendar month. Report is generated client-side using SheetJS (`xlsx`). Two sheets: **Ringkasan Bulanan** (daily breakdown table: Tanggal, Kas Masuk, Kas Keluar, Net Kas, Piutang Baru — one row per day, total row at bottom, preceded by aggregate summary block) and **Detail Transaksi** (all individual entries sorted oldest first: No, Tanggal, Waktu, Jenis Arus, Kategori, Keterangan, Dicatat Oleh, Jumlah). File name: `LaporanArusKas_YYYY-MM_diekspor_YYYYMMDD.xlsx`. Backend `GET /api/cash-flow` extended with optional `start_date` + `end_date` query params (YYYY-MM-DD); when both present, returns aggregate summary for the full range — `date` param is ignored. Same `CashFlowSummaryResponse` DTO reused; no new endpoint or type needed. New utility: `src/utils/cashFlowExport.ts`. New service method: `cashFlowService.getRange(startDate, endDate)`. |
 | 3.8 | May 20, 2026 | — | FR-DBT-007 — Initial customer outstanding debt: `initial_debt` field added to Customer. Owners can set a one-time opening balance when creating or editing a customer. `outstanding_debt` formula updated to `initial_debt + SUM(transaction debt_amounts) - SUM(debt_payments)`. `CustomerDebtHistory` response now includes `initial_debt` field; `CustomerDebtDetailPage` shows an amber "Saldo Awal Hutang" info row when `initial_debt > 0`. New EF migration `AddInitialDebtToCustomer`. |
 | 3.7 | May 19, 2026 | — | FR-STK-016 — Auto-populate Transfer tab from vehicle stock: when the user selects a vehicle as the "Dari Lokasi", the item list is automatically pre-filled with all products currently stocked on that vehicle (using already-loaded stock levels data). Simple products populate with `quantity_total`; refillable products populate one row per status (filled / empty) with qty > 0. An info banner appears below the location selector. Switching to a warehouse resets the list to a single blank row. Pure frontend enhancement — no new API endpoints. |
 | 3.6 | May 19, 2026 | — | Two improvements: (1) FR-STK-015 — Negative stock warning for Transfer tab: frontend checks transfer quantities against current stock levels at the source location; if any item would result in negative stock, a confirmation dialog (soft warning) is shown before submitting — user may still proceed; (2) FR-TXN-021 — Negative stock warning on transaction creation: same pattern applied in Langkah 3 "Kirim Transaksi"; frontend checks each cart item against stock levels at the selected location; applies to both direct creation and Kurir fulfillment flows. |
@@ -366,9 +370,9 @@ Effective unit price = `CustomerPricing.custom_price` (if exists for the custome
 
 ### 8.1 User Stories
 
-- As an Owner, I want to register customers with name, phone, and address.
+- As any staff, I want to register customers with name, phone, and address.
 - As an Owner, I want to set custom prices per product for specific customers.
-- As an Owner, I want to deactivate inactive customers.
+- As any staff, I want to deactivate inactive customers.
 - As Kurir/Kasir, I want to select a customer when creating a transaction.
 
 ### 8.2 Functional Requirements
@@ -393,6 +397,14 @@ Pricing UI shows all active products with: product name, base price, optional cu
 
 **FR-CST-007 — Pricing resolution**
 `CustomerPricing.custom_price` (if exists) → `Products.base_price`. Resolved at API when transaction form loads. Stored as `TransactionItems.unit_price` at creation.
+
+**FR-CST-008 — Konfidensial Pelanggan**
+Owner dapat menandai pelanggan sebagai **konfidensial** melalui checkbox "Konfidensial" di form buat/edit pelanggan. Pelanggan konfidensial:
+- Hanya terlihat oleh role `owner` di halaman Pelanggan dan di pemilih pelanggan Langkah 1 `TransactionsPage`.
+- Tidak muncul dalam respons `GET /api/customers` untuk role kasir dan kurir (filter server-side).
+- Mendapatkan badge "Konfidensial" (pink) pada kartu pelanggan di tampilan owner.
+- Tetap dapat diakses melalui endpoint owner-only (`/debt-history`, `/pricing`, `/container-loans`, dll.) tanpa perubahan.
+- Kasir tidak dapat mengubah status konfidensial meskipun mengakses endpoint PUT — nilai `is_confidential` diabaikan untuk non-owner.
 
 ### 8.3 Validation Rules
 
@@ -985,7 +997,8 @@ The dashboard is accessible to all authenticated roles (owner, kasir, kurir). Fo
 | **Locations** — Manage | ✅ | Lihat kendaraan sendiri | ❌ |
 | **Products** — Manage | ✅ | ❌ | ❌ |
 | **Products** — View (forms) | ✅ | ✅ | ✅ |
-| **Customers** — Manage + pricing | ✅ | ❌ | ❌ |
+| **Customers** — Manage | ✅ | ✅ | ✅ |
+| **Customers** — Pricing | ✅ | ❌ | ❌ |
 | **Customers** — View (forms) | ✅ | ✅ | ✅ |
 | **Stock** — View warehouse | ✅ | ✅ | ✅ |
 | **Stock** — View own truck | ✅ | ✅ | ❌ |
@@ -1209,3 +1222,15 @@ Each row shows: flow-type badge, description (e.g. "Penjualan – Toko Sedap"), 
 Entries are sorted newest first within the selected date.
 
 New API endpoint: `GET /api/cash-flow?date=YYYY-MM-DD` — defaults to today WIB; response: `CashFlowSummary`.
+
+**FR-CSH-005 — Monthly export to XLSX**
+- A "Unduh Laporan Bulanan" section is displayed below the date filter on the Arus Kas page (owner only).
+- Contains a month/year picker (`<input type="month">`) defaulting to the current month (max = current month) and an "Unduh .xlsx" button.
+- On click: fetches all entries for the selected calendar month via `cashFlowService.getRange(firstDay, lastDay)`, then generates and downloads a `.xlsx` file client-side using SheetJS (`xlsx` v0.18+, Apache-2.0).
+- File name format: `LaporanArusKas_YYYY-MM_diekspor_YYYYMMDD.xlsx`.
+- The downloaded file contains two sheets:
+  1. **Ringkasan Bulanan** — report title, export timestamp, aggregate summary block (4 rows), then a daily breakdown table (one row per calendar day, plus a Total row). Columns: Tanggal | Kas Masuk (Rp) | Kas Keluar (Rp) | Net Kas (Rp) | Piutang Baru (Rp). Days with no activity show zeros.
+  2. **Detail Transaksi** — all individual entries sorted oldest first. Columns: No | Tanggal | Waktu | Jenis Arus | Kategori | Keterangan | Dicatat Oleh | Jumlah (Rp). Amounts stored as plain numbers for native Excel summation.
+- While the export is in progress, the button shows a spinner and "Memproses…" text and is disabled.
+- On error, a toast notification is shown.
+- The month picker is independent of the day-level date filter — they do not affect each other.

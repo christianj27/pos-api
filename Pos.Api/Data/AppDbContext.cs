@@ -75,6 +75,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(c => c.Phone).HasMaxLength(20);
             e.Property(c => c.Address).HasMaxLength(500);
             e.Property(c => c.InitialDebt).HasPrecision(15, 2).HasDefaultValue(0m);
+            e.Property(c => c.IsConfidential).HasDefaultValue(false);
             e.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
         });
 

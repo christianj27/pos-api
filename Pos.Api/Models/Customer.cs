@@ -7,6 +7,7 @@ public class Customer
     public string? Phone { get; set; }
     public string? Address { get; set; }
     public bool IsActive { get; set; } = true;
+    public bool IsConfidential { get; set; } = false;
     public decimal InitialDebt { get; set; } = 0m;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

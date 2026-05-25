@@ -6,6 +6,7 @@ public record CustomerResponse(
     string? Phone,
     string? Address,
     bool IsActive,
+    bool IsConfidential,
     DateTime CreatedAt,
     decimal OutstandingDebt
 );

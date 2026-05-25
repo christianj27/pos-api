@@ -4,7 +4,7 @@ namespace Pos.Api.Services.Interfaces;
 
 public interface ICustomerService
 {
-    Task<IEnumerable<CustomerResponse>> GetAllAsync(bool activeOnly = false);
+    Task<IEnumerable<CustomerResponse>> GetAllAsync(bool activeOnly = false, string? userRole = null);
     Task<CustomerResponse?> GetByIdAsync(Guid id);
     Task<(CustomerResponse? Customer, string? Error)> CreateAsync(CreateCustomerRequest request);
     Task<(CustomerResponse? Customer, string? Error)> UpdateAsync(Guid id, UpdateCustomerRequest request);

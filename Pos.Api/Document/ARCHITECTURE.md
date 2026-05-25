@@ -30,7 +30,8 @@ A web-based Point of Sale system for a Micro/Small/Medium Enterprise selling **b
 | ORM | EF Core 10 + Npgsql | — | Standard .NET + PostgreSQL stack |
 | Auth | JWT (HS256) | — | Stateless, role-based, works for web and future mobile |
 | Styling | SCSS (CSS modules per component) | — | No framework dependency, easy to understand and maintain |
-| Charts | Chart.js v4 + react-chartjs-2 v5 | — | Interactive bar chart with click-to-detail panel; MIT-licensed, tree-shakeable (register only `CategoryScale`, `LinearScale`, `BarElement`, `Tooltip`) |
+| Charts | Chart.js v4 + react-chartjs-2 v5 | — | Interactive bar chart with click-to-detail panel + staff revenue pie chart; MIT-licensed, tree-shakeable (register only `CategoryScale`, `LinearScale`, `BarElement`, `Tooltip`, `ArcElement`, `Legend`) |
+| Excel Export | SheetJS xlsx v0.18 | — | Client-side XLSX generation for monthly cash flow report; Apache-2.0 licensed, no server dependency, browser-native ArrayBuffer write |
 | Real-time | React polling (5–10s interval) | — | Simple, zero extra infra needed for small MSMe scale |
 
 ### Why .NET 10 over .NET 9?
@@ -133,6 +134,7 @@ Customers
   phone           VARCHAR(20)
   address         TEXT
   is_active       BOOLEAN
+  is_confidential BOOLEAN  DEFAULT false   -- when true, hidden from kasir/kurir in GET /api/customers
   initial_debt    DECIMAL(15,2)  DEFAULT 0   -- opening balance from paper records
   created_at      TIMESTAMPTZ
 
@@ -370,7 +372,7 @@ src/
 │   ├── _reset.scss          -- normalize/reset
 │   └── global.scss          -- import all partials
 ├── components/
-│   ├── common/              -- Button, Input, Modal, Table, BottomSheet, etc.
+│   ├── common/              -- Button, Input, Modal, Table, BottomSheet, Toast, etc.
 │   └── layout/              -- Navbar, BottomNav (all roles use mobile nav)
 ├── pages/
 │   ├── Login/
@@ -390,7 +392,8 @@ src/
 │   ├── usePolling.js        -- generic polling hook
 │   └── useApi.js            -- axios instance with interceptors
 ├── context/
-│   └── AuthContext.jsx
+│   ├── AuthContext.jsx
+│   └── ToastContext.tsx      -- global toast notification state; provides useToast() hook + ToastProvider
 ├── services/
 │   ├── authService.js
 │   ├── stockService.js

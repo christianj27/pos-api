@@ -5,5 +5,6 @@ public record UpdateCustomerRequest(
     string? Phone,
     string? Address,
     bool IsActive,
-    decimal? InitialDebt = null
+    decimal? InitialDebt = null,
+    bool? IsConfidential = null
 );

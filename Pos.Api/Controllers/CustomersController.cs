@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Pos.Api.DTOs.Customers;
 using Pos.Api.Services.Interfaces;
+using System.Security.Claims;
 
 namespace Pos.Api.Controllers;
 
@@ -11,8 +12,11 @@ namespace Pos.Api.Controllers;
 public class CustomersController(ICustomerService customerService) : ControllerBase
 {
     [HttpGet]
-    public async Task<IActionResult> GetAll([FromQuery] bool activeOnly = false) =>
-        Ok(await customerService.GetAllAsync(activeOnly));
+    public async Task<IActionResult> GetAll([FromQuery] bool activeOnly = false)
+    {
+        var role = User.FindFirstValue(ClaimTypes.Role);
+        return Ok(await customerService.GetAllAsync(activeOnly, role));
+    }
 
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] CreateCustomerRequest request)
@@ -25,7 +29,12 @@ public class CustomersController(ICustomerService customerService) : ControllerB
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateCustomerRequest request)
     {
-        var (customer, error) = await customerService.UpdateAsync(id, request);
+        var role = User.FindFirstValue(ClaimTypes.Role);
+        // Only owners can change the confidential flag; strip it for other roles
+        var effectiveRequest = role != "owner" && request.IsConfidential.HasValue
+            ? request with { IsConfidential = null }
+            : request;
+        var (customer, error) = await customerService.UpdateAsync(id, effectiveRequest);
         if (customer is null) return BadRequest(new { message = error });
         return Ok(customer);
     }
