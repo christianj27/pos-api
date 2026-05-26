@@ -1090,6 +1090,19 @@ Returns the raw event log (not aggregated). Each record represents a single loan
 | `staff_revenue[].staff_name` | string | — |
 | `staff_revenue[].revenue` | number | Sum of `paid_amount` for completed transactions created by this staff member on `date` |
 | `staff_revenue[].transaction_count` | number | Count of completed transactions created by this staff member on `date` |
+| `daily_stock_summary` | array | Per-product stock movement summary for `date`; excludes cancelled movements (`is_reversed=true` and `is_reversal=true`); all roles, store-wide |
+| `daily_stock_summary[].product_id` | string (UUID) | — |
+| `daily_stock_summary[].product_name` | string | — |
+| `daily_stock_summary[].product_unit` | string | — |
+| `daily_stock_summary[].product_category` | string | `simple` \| `refillable` |
+| `daily_stock_summary[].net_filled_delta` | number | Net filled container change for the day (positive=in, negative=out); 0 for simple products |
+| `daily_stock_summary[].net_empty_delta` | number | Net empty container change for the day; 0 for simple products |
+| `daily_stock_summary[].net_simple_delta` | number | Net total change for the day (simple products only); 0 for refillable |
+| `daily_stock_summary[].breakdown` | array | Per-movement-type breakdown |
+| `daily_stock_summary[].breakdown[].movement_type` | string | `receive` \| `transfer` \| `dispatch` \| `defect` \| `production` \| `adjustment` |
+| `daily_stock_summary[].breakdown[].filled_delta` | number | Net filled delta for this movement type (positive=in, negative=out) |
+| `daily_stock_summary[].breakdown[].empty_delta` | number | Net empty delta for this movement type |
+| `daily_stock_summary[].breakdown[].simple_delta` | number | Net simple product delta for this movement type |
 
 ---
 

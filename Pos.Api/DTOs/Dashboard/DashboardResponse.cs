@@ -31,6 +31,24 @@ public record StaffRevenueSummary(
     int TransactionCount
 );
 
+public record DailyMovementBreakdownItem(
+    string MovementType,
+    int FilledDelta,
+    int EmptyDelta,
+    int SimpleDelta
+);
+
+public record DailyStockProductSummary(
+    Guid ProductId,
+    string ProductName,
+    string ProductUnit,
+    string ProductCategory,
+    int NetFilledDelta,
+    int NetEmptyDelta,
+    int NetSimpleDelta,
+    IEnumerable<DailyMovementBreakdownItem> Breakdown
+);
+
 public record DashboardResponse(
     decimal TodayRevenue,
     int TodayTransactions,
@@ -43,5 +61,6 @@ public record DashboardResponse(
     IEnumerable<RecentTransactionDashboardItem> RecentTransactions,
     IEnumerable<WarehouseStockItem> WarehouseStock,
     IEnumerable<CustomerDebtSummary> CustomerDebts,
-    IEnumerable<StaffRevenueSummary> StaffRevenue
+    IEnumerable<StaffRevenueSummary> StaffRevenue,
+    IEnumerable<DailyStockProductSummary> DailyStockSummary
 );
