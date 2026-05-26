@@ -112,6 +112,16 @@ public class StockController(IStockService stockService) : ControllerBase
         return Ok(new { message = "Penyesuaian stok berhasil dicatat." });
     }
 
+    [HttpPost("adjustment/bulk")]
+    [Authorize(Policy = "OwnerOnly")]
+    public async Task<IActionResult> BulkAdjustment([FromBody] BulkAdjustmentRequest request)
+    {
+        var userId = GetUserId();
+        var (success, error) = await stockService.BulkAdjustmentAsync(request, userId);
+        if (!success) return BadRequest(new { message = error });
+        return Ok(new { message = "Penyesuaian stok berhasil dicatat." });
+    }
+
     private Guid GetUserId() =>
         Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 }

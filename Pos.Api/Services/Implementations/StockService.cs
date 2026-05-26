@@ -484,5 +484,48 @@ public class StockService(AppDbContext db) : IStockService
         await db.SaveChangesAsync();
         return (true, null);
     }
+
+    public async Task<(bool Success, string? Error)> BulkAdjustmentAsync(BulkAdjustmentRequest request, Guid createdBy)
+    {
+        if (!request.Items.Any())
+            return (false, "Setidaknya satu item diperlukan.");
+
+        if (string.IsNullOrWhiteSpace(request.Note))
+            return (false, "Catatan wajib diisi untuk penyesuaian stok.");
+
+        var batchId = Guid.NewGuid();
+
+        foreach (var item in request.Items)
+        {
+            if (item.AdjustmentQuantity == 0)
+                return (false, "Jumlah penyesuaian tidak boleh nol.");
+
+            var product = await db.Products.FindAsync(item.ProductId);
+            if (product is null) return (false, "Produk tidak ditemukan.");
+
+            ContainerStatus status;
+            if (product.Category == ProductCategory.Simple)
+                status = ContainerStatus.Na;
+            else if (!Enum.TryParse<ContainerStatus>(item.ContainerStatus, ignoreCase: true, out status))
+                return (false, "Status kontainer wajib dipilih untuk produk refillable.");
+
+            var isAddition = item.AdjustmentQuantity > 0;
+            db.StockMovements.Add(new StockMovement
+            {
+                ProductId = item.ProductId,
+                MovementType = MovementType.Adjustment,
+                ContainerStatus = status,
+                Quantity = Math.Abs(item.AdjustmentQuantity),
+                FromLocationId = isAddition ? null : request.LocationId,
+                ToLocationId = isAddition ? request.LocationId : null,
+                Note = request.Note,
+                CreatedBy = createdBy,
+                BatchId = batchId
+            });
+        }
+
+        await db.SaveChangesAsync();
+        return (true, null);
+    }
 }
 
