@@ -92,6 +92,26 @@ public class StockController(IStockService stockService) : ControllerBase
         return Ok(new { message = "Produksi berhasil dicatat." });
     }
 
+    [HttpPost("movements/{id:guid}/reverse")]
+    [Authorize(Policy = "OwnerOnly")]
+    public async Task<IActionResult> ReverseMovement(Guid id)
+    {
+        var userId = GetUserId();
+        var (movements, error) = await stockService.ReverseMovementAsync(id, userId);
+        if (movements is null) return BadRequest(new { message = error });
+        return Ok(movements);
+    }
+
+    [HttpPost("adjustment")]
+    [Authorize(Policy = "OwnerOnly")]
+    public async Task<IActionResult> Adjustment([FromBody] AdjustmentRequest request)
+    {
+        var userId = GetUserId();
+        var (success, error) = await stockService.AdjustmentAsync(request, userId);
+        if (!success) return BadRequest(new { message = error });
+        return Ok(new { message = "Penyesuaian stok berhasil dicatat." });
+    }
+
     private Guid GetUserId() =>
         Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 }

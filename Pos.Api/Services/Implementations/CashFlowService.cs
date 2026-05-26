@@ -61,7 +61,7 @@ public class CashFlowService(AppDbContext db) : ICashFlowService
         var purchases = await db.StockMovements
             .Include(m => m.Product)
             .Include(m => m.Creator)
-            .Where(m => m.PurchaseCost != null && m.PurchaseCost > 0 && m.CreatedAt >= start && m.CreatedAt < end)
+            .Where(m => m.PurchaseCost != null && m.PurchaseCost > 0 && m.CreatedAt >= start && m.CreatedAt < end && !m.IsReversed)
             .ToListAsync();
 
         foreach (var m in purchases)

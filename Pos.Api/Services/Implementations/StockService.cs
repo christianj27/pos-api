@@ -95,7 +95,8 @@ public class StockService(AppDbContext db) : IStockService
                 m.Quantity, m.FromLocationId, m.FromLocation?.Name,
                 m.ToLocationId, m.ToLocation?.Name,
                 showCost ? m.PurchaseCost : null,
-                m.Note, m.Creator.Name, m.CreatedAt, customerName);
+                m.Note, m.Creator.Name, m.CreatedAt, customerName,
+                m.BatchId, m.IsReversed, m.IsReversal);
         });
     }
 
@@ -126,7 +127,8 @@ public class StockService(AppDbContext db) : IStockService
             ToLocationId = request.ToLocationId,
             PurchaseCost = request.PurchaseCost,
             Note = request.Note,
-            CreatedBy = createdBy
+            CreatedBy = createdBy,
+            BatchId = Guid.NewGuid()
         });
 
         await db.SaveChangesAsync();
@@ -145,6 +147,7 @@ public class StockService(AppDbContext db) : IStockService
             .ToListAsync())
             .ToHashSet();
 
+        var batchId = Guid.NewGuid();
         foreach (var item in request.Items)
         {
             ContainerStatus status;
@@ -162,7 +165,8 @@ public class StockService(AppDbContext db) : IStockService
                 ToLocationId = request.ToLocationId,
                 PurchaseCost = item.PurchaseCost,
                 Note = request.Note,
-                CreatedBy = createdBy
+                CreatedBy = createdBy,
+                BatchId = batchId
             });
         }
 
@@ -190,7 +194,8 @@ public class StockService(AppDbContext db) : IStockService
             FromLocationId = request.FromLocationId,
             ToLocationId = request.ToLocationId,
             Note = request.Note,
-            CreatedBy = createdBy
+            CreatedBy = createdBy,
+            BatchId = Guid.NewGuid()
         });
 
         await db.SaveChangesAsync();
@@ -206,6 +211,7 @@ public class StockService(AppDbContext db) : IStockService
             .ToListAsync())
             .ToHashSet();
 
+        var batchId = Guid.NewGuid();
         foreach (var item in request.Items)
         {
             ContainerStatus status;
@@ -223,7 +229,8 @@ public class StockService(AppDbContext db) : IStockService
                 FromLocationId = request.FromLocationId,
                 ToLocationId = request.ToLocationId,
                 Note = request.Note,
-                CreatedBy = createdBy
+                CreatedBy = createdBy,
+                BatchId = batchId
             });
         }
 
@@ -236,6 +243,7 @@ public class StockService(AppDbContext db) : IStockService
         await using var tx = await db.Database.BeginTransactionAsync();
         try
         {
+            var batchId = Guid.NewGuid();
             db.StockMovements.Add(new StockMovement
             {
                 ProductId = request.ProductId,
@@ -245,7 +253,8 @@ public class StockService(AppDbContext db) : IStockService
                 FromLocationId = request.LocationId,
                 ToLocationId = null,
                 Note = request.Note,
-                CreatedBy = createdBy
+                CreatedBy = createdBy,
+                BatchId = batchId
             });
 
             db.StockMovements.Add(new StockMovement
@@ -258,7 +267,8 @@ public class StockService(AppDbContext db) : IStockService
                 ToLocationId = request.LocationId,
                 PurchaseCost = request.PurchaseCost,
                 Note = request.Note,
-                CreatedBy = createdBy
+                CreatedBy = createdBy,
+                BatchId = batchId
             });
 
             await db.SaveChangesAsync();
@@ -279,6 +289,7 @@ public class StockService(AppDbContext db) : IStockService
         {
             foreach (var item in request.Items)
             {
+                var itemBatchId = Guid.NewGuid();
                 db.StockMovements.Add(new StockMovement
                 {
                     ProductId = item.ProductId,
@@ -288,7 +299,8 @@ public class StockService(AppDbContext db) : IStockService
                     FromLocationId = request.LocationId,
                     ToLocationId = null,
                     Note = request.Note,
-                    CreatedBy = createdBy
+                    CreatedBy = createdBy,
+                    BatchId = itemBatchId
                 });
 
                 db.StockMovements.Add(new StockMovement
@@ -301,7 +313,8 @@ public class StockService(AppDbContext db) : IStockService
                     ToLocationId = request.LocationId,
                     PurchaseCost = item.PurchaseCost,
                     Note = request.Note,
-                    CreatedBy = createdBy
+                    CreatedBy = createdBy,
+                    BatchId = itemBatchId
                 });
             }
 
@@ -324,6 +337,8 @@ public class StockService(AppDbContext db) : IStockService
         if (product.Category != ProductCategory.Refillable || product.ProductionType != ProductionType.SelfProduced)
             return (false, "Produksi hanya berlaku untuk produk isi ulang produksi sendiri.");
 
+        var productionBatchId = Guid.NewGuid();
+
         // Empty containers are consumed (outbound only)
         db.StockMovements.Add(new StockMovement
         {
@@ -335,7 +350,8 @@ public class StockService(AppDbContext db) : IStockService
             ToLocationId = null,
             PurchaseCost = request.ProductionCost,
             Note = request.Note,
-            CreatedBy = createdBy
+            CreatedBy = createdBy,
+            BatchId = productionBatchId
         });
 
         // Filled containers are produced (inbound only)
@@ -348,10 +364,125 @@ public class StockService(AppDbContext db) : IStockService
             FromLocationId = null,
             ToLocationId = request.LocationId,
             Note = request.Note,
-            CreatedBy = createdBy
+            CreatedBy = createdBy,
+            BatchId = productionBatchId
+        });
+
+        await db.SaveChangesAsync();
+        return (true, null);
+    }
+
+    public async Task<(IEnumerable<StockMovementResponse>? Movements, string? Error)> ReverseMovementAsync(
+        Guid movementId, Guid requestedBy)
+    {
+        var movement = await db.StockMovements
+            .Include(m => m.Product)
+            .Include(m => m.Creator)
+            .FirstOrDefaultAsync(m => m.Id == movementId);
+
+        if (movement is null) return (null, "Pergerakan stok tidak ditemukan.");
+        if (movement.MovementType == MovementType.Dispatch)
+            return (null, "Pergerakan dispatch tidak dapat dibatalkan di sini. Batalkan transaksinya.");
+        if (movement.IsReversed || movement.IsReversal)
+            return (null, "Pergerakan ini sudah pernah dibatalkan.");
+
+        // Gather all movements in the same batch
+        var batch = movement.BatchId.HasValue
+            ? await db.StockMovements
+                .Include(m => m.Product)
+                .Include(m => m.Creator)
+                .Where(m => m.BatchId == movement.BatchId.Value && !m.IsReversed && !m.IsReversal)
+                .ToListAsync()
+            : [movement];
+
+        if (batch.Any(m => m.IsReversed || m.IsReversal))
+            return (null, "Satu atau lebih pergerakan dalam batch ini sudah dibatalkan.");
+
+        await using var tx = await db.Database.BeginTransactionAsync();
+        try
+        {
+            var reversalBatchId = Guid.NewGuid();
+            var created = new List<StockMovement>();
+
+            foreach (var m in batch)
+            {
+                // Universal direction-invert: swap From and To
+                var reversal = new StockMovement
+                {
+                    ProductId = m.ProductId,
+                    MovementType = m.MovementType,
+                    ContainerStatus = m.ContainerStatus,
+                    Quantity = m.Quantity,
+                    FromLocationId = m.ToLocationId,   // swapped
+                    ToLocationId = m.FromLocationId,   // swapped
+                    Note = $"Koreksi/pembatalan pergerakan {m.Id}",
+                    CreatedBy = requestedBy,
+                    BatchId = reversalBatchId,
+                    IsReversal = true
+                };
+                db.StockMovements.Add(reversal);
+                m.IsReversed = true;
+                created.Add(reversal);
+            }
+
+            await db.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            // Build responses for created reversal movements
+            var creator = await db.Users.FindAsync(requestedBy);
+            var responses = created.Select(r =>
+            {
+                var orig = batch.First(m => m.ProductId == r.ProductId && m.ContainerStatus == r.ContainerStatus);
+                return new StockMovementResponse(
+                    r.Id, r.ProductId, orig.Product.Name,
+                    r.MovementType.ToString().ToLower(), r.ContainerStatus.ToString().ToLower(),
+                    r.Quantity, r.FromLocationId, null, r.ToLocationId, null,
+                    null, r.Note, creator?.Name ?? string.Empty, r.CreatedAt,
+                    null, r.BatchId, r.IsReversed, r.IsReversal);
+            });
+
+            return (responses, null);
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+    }
+
+    public async Task<(bool Success, string? Error)> AdjustmentAsync(AdjustmentRequest request, Guid createdBy)
+    {
+        if (request.AdjustmentQuantity == 0)
+            return (false, "Jumlah penyesuaian tidak boleh nol.");
+
+        var product = await db.Products.FindAsync(request.ProductId);
+        if (product is null) return (false, "Produk tidak ditemukan.");
+
+        ContainerStatus status;
+        if (product.Category == ProductCategory.Simple)
+            status = ContainerStatus.Na;
+        else if (!Enum.TryParse<ContainerStatus>(request.ContainerStatus, ignoreCase: true, out status))
+            return (false, "Status kontainer wajib dipilih untuk produk refillable.");
+
+        if (string.IsNullOrWhiteSpace(request.Note))
+            return (false, "Catatan wajib diisi untuk penyesuaian stok.");
+
+        var isAddition = request.AdjustmentQuantity > 0;
+        db.StockMovements.Add(new StockMovement
+        {
+            ProductId = request.ProductId,
+            MovementType = MovementType.Adjustment,
+            ContainerStatus = status,
+            Quantity = Math.Abs(request.AdjustmentQuantity),
+            FromLocationId = isAddition ? null : request.LocationId,
+            ToLocationId = isAddition ? request.LocationId : null,
+            Note = request.Note,
+            CreatedBy = createdBy,
+            BatchId = Guid.NewGuid()
         });
 
         await db.SaveChangesAsync();
         return (true, null);
     }
 }
+

@@ -15,5 +15,8 @@ public record StockMovementResponse(
     string? Note,
     string CreatedByName,
     DateTime CreatedAt,
-    string? CustomerName
+    string? CustomerName,
+    Guid? BatchId,
+    bool IsReversed,
+    bool IsReversal
 );

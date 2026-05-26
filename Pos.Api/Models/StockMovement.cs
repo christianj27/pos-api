@@ -14,6 +14,9 @@ public class StockMovement
     public decimal? PurchaseCost { get; set; }
     public string? Note { get; set; }
     public Guid? TransactionId { get; set; }
+    public Guid? BatchId { get; set; }
+    public bool IsReversed { get; set; } = false;
+    public bool IsReversal { get; set; } = false;
     public Guid CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

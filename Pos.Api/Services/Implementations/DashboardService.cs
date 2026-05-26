@@ -23,7 +23,7 @@ public class DashboardService(AppDbContext db) : IDashboardService
         var todayTransactions = await dayTxBase.CountAsync();
 
         IQueryable<StockMovement> dayMvBase = db.StockMovements
-            .Where(m => m.PurchaseCost != null && m.CreatedAt >= start && m.CreatedAt < end);
+            .Where(m => m.PurchaseCost != null && m.CreatedAt >= start && m.CreatedAt < end && !m.IsReversed);
         if (!isOwner) dayMvBase = dayMvBase.Where(m => m.CreatedBy == userId);
         var todayPurchaseCost = await dayMvBase.SumAsync(m => m.PurchaseCost ?? 0);
 
@@ -63,7 +63,7 @@ public class DashboardService(AppDbContext db) : IDashboardService
             var txCount = await wTxQuery.CountAsync();
 
             IQueryable<StockMovement> wMvQuery = db.StockMovements
-                .Where(m => m.PurchaseCost != null && m.CreatedAt >= dStart && m.CreatedAt < dEnd);
+                .Where(m => m.PurchaseCost != null && m.CreatedAt >= dStart && m.CreatedAt < dEnd && !m.IsReversed);
             if (!isOwner) wMvQuery = wMvQuery.Where(m => m.CreatedBy == userId);
             var purchaseCost = await wMvQuery.SumAsync(m => m.PurchaseCost ?? 0);
 

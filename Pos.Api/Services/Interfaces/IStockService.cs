@@ -13,4 +13,6 @@ public interface IStockService
     Task<(bool Success, string? Error)> VendorExchangeAsync(VendorExchangeRequest request, Guid createdBy);
     Task<(bool Success, string? Error)> BulkVendorExchangeAsync(BulkVendorExchangeRequest request, Guid createdBy);
     Task<(bool Success, string? Error)> ProductionAsync(ProductionRequest request, Guid createdBy);
+    Task<(IEnumerable<StockMovementResponse>? Movements, string? Error)> ReverseMovementAsync(Guid movementId, Guid requestedBy);
+    Task<(bool Success, string? Error)> AdjustmentAsync(AdjustmentRequest request, Guid createdBy);
 }

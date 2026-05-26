@@ -6,5 +6,6 @@ public enum MovementType
     Transfer,
     Dispatch,
     Defect,
-    Production
+    Production,
+    Adjustment
 }
