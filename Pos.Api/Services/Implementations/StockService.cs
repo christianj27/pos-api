@@ -415,7 +415,7 @@ public class StockService(AppDbContext db) : IStockService
                     Quantity = m.Quantity,
                     FromLocationId = m.ToLocationId,   // swapped
                     ToLocationId = m.FromLocationId,   // swapped
-                    Note = $"Koreksi/pembatalan pergerakan {m.Id}",
+                    Note = $"Koreksi: {MovementTypeLabel(m.MovementType)} {m.Quantity} {m.Product.Name}{ContainerStatusSuffix(m.ContainerStatus)} pada {m.CreatedAt:dd MMM yyyy HH:mm}",
                     CreatedBy = requestedBy,
                     BatchId = reversalBatchId,
                     IsReversal = true
@@ -449,6 +449,24 @@ public class StockService(AppDbContext db) : IStockService
             throw;
         }
     }
+
+    private static string MovementTypeLabel(MovementType type) => type switch
+    {
+        MovementType.Receive        => "Terima",
+        MovementType.Transfer       => "Transfer",
+        MovementType.Dispatch       => "Penjualan",
+        MovementType.Defect         => "Rusak/Defek",
+        MovementType.Production     => "Produksi",
+        MovementType.Adjustment     => "Penyesuaian",
+        _                           => type.ToString()
+    };
+
+    private static string ContainerStatusSuffix(ContainerStatus status) => status switch
+    {
+        ContainerStatus.Filled => " (Terisi)",
+        ContainerStatus.Empty  => " (Kosong)",
+        _                      => string.Empty
+    };
 
     public async Task<(bool Success, string? Error)> AdjustmentAsync(AdjustmentRequest request, Guid createdBy)
     {
