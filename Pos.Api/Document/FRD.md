@@ -7,6 +7,7 @@
 
 | Version | Date | Author | Changes |
 |---|---|---|---------|
+| 5.0 | May 29, 2026 | — | FR-TXN-009 updated — Transaction cancellation is now restricted to **Owner only**. Kurir and Kasir can no longer cancel transactions, even their own. Backend: `TransactionService.UpdateStatusAsync` replaces the `kurir`/`kasir` ownership check with a blanket owner-only guard — returns `400 "Hanya owner yang dapat membatalkan transaksi."` for non-owner callers. Frontend: `TransactionsPage` cancel button (`Batalkan`) is now wrapped with an `isOwner` guard and is no longer rendered for Kurir/Kasir. ARCHITECTURE.md updated: `PUT /api/transactions/{id}/status` authorization changed from "owner can cancel any; kurir/kasir can cancel own only" to "owner only". |
 | 4.9 | May 26, 2026 | — | FR-DSH-012 — Dashboard Daily Stock Movement Summary: new "Pergerakan Stok" section added to Dashboard above "Stok Gudang". Shows per-product aggregated net stock movement deltas for the selected date (all non-cancelled movements). Cancelled movements (`is_reversed = true` AND `is_reversal = true`) are excluded. Each product row is clickable to open a detail modal showing individual movements with time, type, quantity, container status, location, and staff; purchase cost visible to owner only. Deltas are color-coded: green for stock in, red for stock out. Breakdown groups by movement type (Terima/Kirim/Transfer/Defek/Produksi/Penyesuaian). Section is visible to all roles store-wide (same as Stok Gudang). Backend: `GET /api/dashboard` response extended with `daily_stock_summary` array; new DTO records `DailyMovementBreakdownItem` and `DailyStockProductSummary` added to `Pos.Api/DTOs/Dashboard/`; `DashboardService.GetDashboardAsync` computes per-product movement aggregates for the date. Frontend: new `DailyMovementBreakdownItem` and `DailyStockProductSummary` interfaces added to `types/index.ts`; `DashboardStats` extended with `dailyStockSummary`; mock computation added to `dashboardService.ts`; new `DailyStockSummaryRow` and `StockMovementDetailModal` sub-components in `DashboardPage.tsx`; new styles in `DashboardPage.module.scss`. Detail modal calls existing `GET /api/stock/movements?date=YYYY-MM-DD` and filters by product client-side. |
 | 4.8 | May 28, 2026 | — | FR-CON-006 upgraded — Kontainer Manual form now records stock movements: `BulkCreateContainerLoanRequest` gains required `location_id` (shared) and per-item `container_status` (`filled`/`empty`). `ContainerLoanService.CreateBulkAsync` now creates one `StockMovement` (type `Adjustment`) per item in the same DB transaction, using a shared `BatchId`. Movement direction: lending to customer → `FromLocationId = locationId`, returning from customer → `ToLocationId = locationId`. Frontend: `BulkContainerLoanItem` and `CreateBulkContainerLoanRequest` types extended; `StockPage` bulk loan form gains a Location `<Select>` (shared) and per-item Status Kontainer `<Select>` (Terisi/Kosong); validation guards added for empty location and containerStatus. New validation rules VAL-CON-004 (location required) and VAL-CON-005 (containerStatus must be filled/empty). |
 | 4.7 | May 27, 2026 | — | FR-STK-018 upgraded to bulk multi-item form: Penyesuaian tab now matches the Receive/Transfer cart pattern — shared Lokasi + shared Catatan; per-item rows with product selector, status kontainer, quantity, and per-item `+`/`−` direction toggle (green = Tambah, red = Kurangi). New backend endpoint `POST /api/stock/adjustment/bulk`; old single-item `POST /api/stock/adjustment` kept. Frontend: `AdjustItem` interface, `adjustShared`+`adjustItems` state, `adjustBulk()` service method, `updateAdjustItem`/`removeAdjustItem`/`addAdjustItem` helpers. |
@@ -623,7 +624,7 @@ Owner can create manual stock adjustments (one or more products in a single oper
 
 ## 10. Module: Transactions (FR-TXN)
 
-**Accessible by:** Kurir (delivery transactions, view own); Kasir (counter, view own); Owner (view all, cancel any, create any type)
+**Accessible by:** Kurir (delivery transactions, view own); Kasir (counter, view own); Owner (view all, cancel, create any type)
 
 ### 10.1 User Stories
 
@@ -633,7 +634,6 @@ Owner can create manual stock adjustments (one or more products in a single oper
 - As any staff, I want to record partial payment and leave the remainder as customer debt.
 - As any staff, I want to optionally collect an old customer debt payment at the same time as a new transaction.
 - As any staff, I want to record empty containers returned by the customer at the time of delivery.
-- As a Kurir, I want to cancel my own transaction if something went wrong.
 - As an Owner, I want to see all transactions from all staff.
 - As an Owner, I want to cancel any transaction, knowing stock will be automatically reversed.
 
@@ -704,7 +704,7 @@ Owner sees all transactions, filtered by the selected date (see FR-TXN-015). Lis
 Shows: customer info (or "Tanpa Pelanggan"), staff name, transaction type, all items (product, qty, unit price, subtotal), total, paid amount, debt amount, payment method, status, notes, container returns recorded.
 
 **FR-TXN-009 — Cancel transaction**
-Any role can cancel their own transaction. Owner can cancel any transaction. On cancellation:
+Only Owner can cancel a transaction. On cancellation:
 - System creates compensating `StockMovements` records (`movement_type = 'receive'`, back to the original source location) for each item — restoring stock to source location
 - System creates compensating `ContainerLoans` records (negative quantity) to reverse any loans recorded at creation
 - Container returns recorded at creation are also reversed (positive ContainerLoans, negative StockMovements for empty returns)

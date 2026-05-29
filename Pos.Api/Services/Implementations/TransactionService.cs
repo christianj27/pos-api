@@ -221,8 +221,8 @@ public class TransactionService(AppDbContext db) : ITransactionService
         if (transaction is null) return (false, "Transaction not found.");
         if (transaction.Status == TransactionStatus.Cancelled) return (false, "Transaksi sudah dibatalkan.");
 
-        if (role is "kurir" or "kasir" && transaction.StaffId != userId)
-            return (false, "Anda tidak memiliki izin untuk membatalkan transaksi ini.");
+        if (role is not "owner")
+            return (false, "Hanya owner yang dapat membatalkan transaksi.");
 
         await using var dbTx = await db.Database.BeginTransactionAsync();
         try

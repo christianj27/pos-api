@@ -328,7 +328,7 @@ POST   /api/transactions            -- delivery or counter
                                    --                + receive StockMovements for container returns + DebtPayments if debt_payment_amount > 0
 PUT    /api/transactions/{id}/status  -- only valid target: 'cancelled'
                                    -- server creates compensating receive StockMovements + reverse ContainerLoans for all items
-                                   -- authorization: owner can cancel any; kurir/kasir can cancel own only
+                                   -- authorization: owner only
 GET    /api/transactions/{id}
 POST   /api/transactions/{id}/payments  -- record partial/full payment on transaction
 
@@ -366,7 +366,6 @@ GET    /api/dashboard               -- all authenticated roles; stats scoped to 
                                    --   customer_debts: [{ customer_id, customer_name, outstanding_debt }] — active customers with debt > 0, sorted by debt desc
                                    --   daily_stock_summary: per-product aggregated stock movement deltas for the date (excludes cancelled/reversed movements);
                                    --   [{ product_id, product_name, product_unit, product_category, net_filled_delta, net_empty_delta, net_simple_delta, breakdown: [{ movement_type, filled_delta, empty_delta, simple_delta }] }]
-GET    /api/health
 ```
 
 ---
