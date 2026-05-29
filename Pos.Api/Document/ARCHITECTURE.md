@@ -147,13 +147,17 @@ CustomerPricing                     -- per-customer price override
 StockMovements
   id              UUID  PK
   product_id      UUID  FK → Products
-  movement_type   ENUM('receive', 'transfer', 'dispatch', 'defect', 'production')
+  movement_type   ENUM('receive', 'transfer', 'dispatch', 'defect', 'production', 'adjustment')
   container_status ENUM('filled', 'empty', 'na')
   quantity        INT              -- always positive
   from_location_id UUID  FK → Locations  -- null for 'receive'; null when sending empties to external vendor
   to_location_id  UUID  FK → Locations  -- null for 'dispatch', 'defect'; null when sending empties to external vendor
   purchase_cost   DECIMAL(15,2)   -- nullable; required on vendor-exchange receive movement
-  note            TEXT             -- required for defect; optional otherwise; max 255
+  note            TEXT             -- required for defect/adjustment; optional otherwise; max 255
+  batch_id        UUID             -- nullable; groups all movements created in a single API call for atomic reversal
+  is_reversed     BOOLEAN          -- true when this movement has been cancelled by a reversal; excluded from purchase cost aggregation
+  is_reversal     BOOLEAN          -- true when this movement is a compensating correction entry created by reversal
+  transaction_id  UUID  FK → Transactions  -- nullable; set for dispatch/return movements linked to a transaction
   created_by      UUID  FK → Users
   created_at      TIMESTAMPTZ
 
@@ -302,6 +306,9 @@ POST   /api/stock/vendor-exchange/bulk -- exchange containers with vendor for mu
                                    -- body: { location_id, notes?, items: [{ product_id, empty_quantity, filled_quantity, purchase_cost }] }
                                    -- server creates two StockMovements records per item atomically (same as vendor-exchange but batched)
 POST   /api/stock/production       -- in-house refill (owner and kasir): atomically empty -= qty, filled += qty; product must be refillable + selfproduced
+POST   /api/stock/movements/{id}/reverse -- cancel a movement batch (owner only); reversal is atomic and batch_id-aware; sets is_reversed=true on originals, creates compensating movements with is_reversal=true
+POST   /api/stock/adjustment       -- owner only; create adjustment movement (type='adjustment') to reconcile physical vs system stock; positive qty = add, negative = remove; note required
+POST   /api/stock/adjustment/bulk  -- owner only; bulk variant of above; body: { location_id, note, items: [{ product_id, adjustment_quantity, container_status? }] }; all items share one BatchId
 
 # Delivery Assignments
 GET    /api/assignments             -- owner/kasir: all; kurir: own only
@@ -328,6 +335,7 @@ POST   /api/transactions/{id}/payments  -- record partial/full payment on transa
 # Container loans
 GET    /api/container-loans         -- owner: all; filter by customer
 POST   /api/container-loans         -- record loan event or return event
+POST   /api/container-loans/bulk    -- owner only; record multiple container loans/returns for one customer in one request (no transaction required)
 
 # Debt
 GET    /api/debt-payments

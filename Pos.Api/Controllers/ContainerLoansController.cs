@@ -23,4 +23,13 @@ public class ContainerLoansController(IContainerLoanService containerLoanService
         if (loan is null) return BadRequest(new { message = error });
         return Ok(loan);
     }
+
+    [HttpPost("bulk")]
+    public async Task<IActionResult> CreateBulk([FromBody] BulkCreateContainerLoanRequest request)
+    {
+        var userId = Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var (loans, error) = await containerLoanService.CreateBulkAsync(request, userId);
+        if (loans is null) return BadRequest(new { message = error });
+        return Ok(loans);
+    }
 }

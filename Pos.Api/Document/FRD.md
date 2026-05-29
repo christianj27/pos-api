@@ -8,6 +8,9 @@
 | Version | Date | Author | Changes |
 |---|---|---|---------|
 | 4.9 | May 26, 2026 | — | FR-DSH-012 — Dashboard Daily Stock Movement Summary: new "Pergerakan Stok" section added to Dashboard above "Stok Gudang". Shows per-product aggregated net stock movement deltas for the selected date (all non-cancelled movements). Cancelled movements (`is_reversed = true` AND `is_reversal = true`) are excluded. Each product row is clickable to open a detail modal showing individual movements with time, type, quantity, container status, location, and staff; purchase cost visible to owner only. Deltas are color-coded: green for stock in, red for stock out. Breakdown groups by movement type (Terima/Kirim/Transfer/Defek/Produksi/Penyesuaian). Section is visible to all roles store-wide (same as Stok Gudang). Backend: `GET /api/dashboard` response extended with `daily_stock_summary` array; new DTO records `DailyMovementBreakdownItem` and `DailyStockProductSummary` added to `Pos.Api/DTOs/Dashboard/`; `DashboardService.GetDashboardAsync` computes per-product movement aggregates for the date. Frontend: new `DailyMovementBreakdownItem` and `DailyStockProductSummary` interfaces added to `types/index.ts`; `DashboardStats` extended with `dailyStockSummary`; mock computation added to `dashboardService.ts`; new `DailyStockSummaryRow` and `StockMovementDetailModal` sub-components in `DashboardPage.tsx`; new styles in `DashboardPage.module.scss`. Detail modal calls existing `GET /api/stock/movements?date=YYYY-MM-DD` and filters by product client-side. |
+| 4.8 | May 28, 2026 | — | FR-CON-006 upgraded — Kontainer Manual form now records stock movements: `BulkCreateContainerLoanRequest` gains required `location_id` (shared) and per-item `container_status` (`filled`/`empty`). `ContainerLoanService.CreateBulkAsync` now creates one `StockMovement` (type `Adjustment`) per item in the same DB transaction, using a shared `BatchId`. Movement direction: lending to customer → `FromLocationId = locationId`, returning from customer → `ToLocationId = locationId`. Frontend: `BulkContainerLoanItem` and `CreateBulkContainerLoanRequest` types extended; `StockPage` bulk loan form gains a Location `<Select>` (shared) and per-item Status Kontainer `<Select>` (Terisi/Kosong); validation guards added for empty location and containerStatus. New validation rules VAL-CON-004 (location required) and VAL-CON-005 (containerStatus must be filled/empty). |
+| 4.7 | May 27, 2026 | — | FR-STK-018 upgraded to bulk multi-item form: Penyesuaian tab now matches the Receive/Transfer cart pattern — shared Lokasi + shared Catatan; per-item rows with product selector, status kontainer, quantity, and per-item `+`/`−` direction toggle (green = Tambah, red = Kurangi). New backend endpoint `POST /api/stock/adjustment/bulk`; old single-item `POST /api/stock/adjustment` kept. Frontend: `AdjustItem` interface, `adjustShared`+`adjustItems` state, `adjustBulk()` service method, `updateAdjustItem`/`removeAdjustItem`/`addAdjustItem` helpers. |
+| 4.6 | May 25, 2026 | — | FR-STK-017, FR-STK-018, FR-CON-006 — Stock management enhancements: (1) Stock movement reversal — owner can cancel any non-dispatch, non-already-reversed movement via "Batalkan" button in Riwayat tab; reversal is atomic and batch-aware (all movements sharing a `batch_id` are reversed together); cancelled rows show strikethrough + "Dibatalkan" badge; compensating "Koreksi" movements are created with `is_reversal = true`; `purchase_cost` is excluded from cash flow and dashboard when `is_reversed = true`. (2) Stock adjustment tab — owner can create `adjustment` type movements to reconcile physical vs system stock; positive qty = stock in, negative = stock out; note is required. (3) Standalone container loan — "+ Kontainer Manual" button in Kontainer tab opens a form with direction toggle ("Pinjam ke Pelanggan" / "Terima dari Pelanggan"), customer selector, and multi-item product rows; calls `POST /api/container-loans/bulk`. Backend: `StockMovement` model gains `batch_id` (UUID nullable), `is_reversed` (bool), `is_reversal` (bool) + EF migration `AddBatchIdAndReversalToStockMovement`; `MovementType` enum gains `Adjustment`; `StockService` assigns `BatchId` to all movement create paths; new `ReverseMovementAsync` and `AdjustmentAsync` service methods; new `POST /api/stock/movements/{id}/reverse` and `POST /api/stock/adjustment` endpoints (owner only); `ContainerLoanService` adds `CreateBulkAsync`; new `POST /api/container-loans/bulk` endpoint. Frontend: `MovementType` union extended with `'adjustment'`; `StockMovement` type extended with `batchId?`, `isReversed?`, `isReversal?`; new `BulkContainerLoanItem` and `CreateBulkContainerLoanRequest` types; new `stockService.reverseMovement()` and `stockService.adjust()` methods; new `containerLoanService.createBulk()` method; `StockPage` gains Batalkan button + reversal badges in Riwayat tab, new Penyesuaian tab, and Kontainer Manual inline form. |
 | 4.3 | May 25, 2026 | — | FR-CST-008 — Konfidensial Pelanggan: Owner dapat menandai pelanggan sebagai konfidensial menggunakan toggle checkbox pada form buat/edit pelanggan. Pelanggan konfidensial hanya terlihat oleh owner — kasir dan kurir tidak dapat melihatnya di daftar `CustomersPage` maupun di pemilih pelanggan (Langkah 1) `TransactionsPage`. Filter diterapkan server-side: `GET /api/customers` menyaring `is_confidential = true` untuk pemanggil non-owner. Owner melihat badge "Konfidensial" (pink) pada kartu pelanggan di daftar. Backend: field `IsConfidential` (boolean, default `false`) ditambahkan ke model `Customer`; field disertakan di `CustomerResponse`, `CreateCustomerRequest`, `UpdateCustomerRequest`; `CustomerService.GetAllAsync` menerima parameter `userRole` dan menerapkan filter kondisional; `CustomersController` mengambil role dari JWT claims dan meneruskannya ke service; perubahan `is_confidential` dalam `PUT /api/customers/{id}` diabaikan untuk non-owner. EF migration baru: `AddConfidentialToCustomer`. Frontend: field `isConfidential?` ditambahkan ke tipe `Customer`; `customerService.list(role?)` menerima role untuk simulasi filter mock; `CustomersPage` menampilkan checkbox "Konfidensial" (owner-only) di form dan badge pada kartu; `TransactionsPage.load()` meneruskan role ke `customerService.list()`. |
 | 4.2 | May 22, 2026 | — | FR-DSH-011 — Dashboard accessible to all roles (owner, kasir, kurir). Kasir/kurir restrictions: Biaya Pembelian stat card hidden; Biaya Pembelian row in bar chart detail panel hidden; Pendapatan per Staf pie chart section hidden. All transaction-derived stats (Pendapatan, Transaksi, Biaya Pembelian, Piutang Terbayar, Pendapatan 7 Hari, Transaksi Terkini) scoped server-side to the authenticated user for kasir/kurir. Hutang Pelanggan, Stok Gudang, Stok Rendah shown store-wide for all roles. Backend: `DashboardController` authorization changed from `OwnerOnly` to `Authorize` (all authenticated); `userId` and `role` extracted from JWT claims; `DashboardService.GetDashboardAsync` accepts `userId` + `role`, uses `IQueryable<T>` with conditional `.Where(t => t.StaffId == userId)` / `.Where(m => m.CreatedBy == userId)` for non-owners; `staffRevenue` always empty for kasir/kurir. Frontend: `/dashboard` route allows `['owner','kasir','kurir']`; BottomNav adds Dashboard as first item for kasir/kurir (4→5 items each); `DashboardPage` uses `useAuth()` and conditionally hides owner-only sections. |
 | 4.1 | May 21, 2026 | — | FR-ASG-LOC — Assignment location selection: Owner/Kasir must pick a stock source location (any active warehouse or vehicle) in Step 1 of assignment creation. The chosen location is stored on the assignment (`location_id`) and pre-filled + locked as the Lokasi Stok when Kurir fulfills the assignment in the transaction overlay. Kurir's own new (non-assignment) delivery transactions continue to auto-fill from the kurir's assigned vehicle as before. Backend: `location_id` (nullable UUID FK) added to `DeliveryAssignments`; `CreateAssignmentRequest` extended with required `LocationId`; `AssignmentResponse` returns `location_id` + `location_name`; `FulfillAsync` uses stored location with vehicle fallback for old records. New EF migration `AddLocationToAssignment`. Frontend: `DeliveryAssignment` type extended; `assignmentService` updated; `TransactionsPage` Step 1 gains a location picker and the Step 2 locked fields show Lokasi Stok. |
@@ -538,6 +541,56 @@ When the user selects a vehicle location as the "Dari Lokasi" in the Transfer ta
 
 If the vehicle has no stock, the list resets to a single blank row (no banner). When the user switches the source location to a warehouse or clears it, the list also resets to a single blank row. When switching between two vehicle locations, the list re-populates with the newly selected vehicle’s stock. The user can still edit quantities, remove rows, or add rows after auto-population. The negative-stock `ConfirmDialog` (FR-STK-015) continues to apply normally after auto-population. No new API endpoints are required — the feature reads from `levels` state already maintained by the Stock page.
 
+---
+
+**FR-STK-017 — Stock Movement Reversal**
+
+Owner can cancel any stock movement (except `dispatch`) from the **Riwayat** tab to correct accidental input errors.
+
+**Trigger:** "Batalkan" button visible on each movement row in the Riwayat tab. Visible to owner only. Hidden when:
+- `movement_type = 'dispatch'` (sale movements cannot be reversed here; use transaction cancellation)
+- `is_reversed = true` (already cancelled)
+- `is_reversal = true` (is itself a correction movement)
+
+**Confirmation:** A `ConfirmDialog` is shown before reversal. Text: *"Batalkan '[Tipe]' untuk [Produk] (qty: [N])? Semua pergerakan dalam batch yang sama juga akan dibatalkan."*
+
+**Reversal logic (server-side, atomic):**
+1. Load all `StockMovement` records sharing the same `batch_id` as the target movement.
+2. For each original: create compensating movement with `from_location_id` <-> `to_location_id` swapped; set `is_reversal = true` on new; set `is_reversed = true` on original.
+3. All changes committed in a single transaction.
+
+**UI feedback:**
+- Reversed rows: strikethrough product name, reduced opacity, orange **"Dibatalkan"** badge.
+- Compensating rows: blue **"Koreksi"** badge.
+- `purchase_cost` excluded from cash flow / dashboard when `is_reversed = true`.
+
+**Endpoint:** `POST /api/stock/movements/{id}/reverse` — owner only.
+
+---
+
+**FR-STK-018 — Stock Adjustment**
+
+Owner can create manual stock adjustments (one or more products in a single operation) to reconcile physical stock with the system stock count.
+
+**Tab:** **"Penyesuaian"** tab (owner only) on the Stock page, after the "Defek/Rusak" tab.
+
+**Form layout (bulk cart pattern — mirrors Receive/Transfer tabs):**
+- **Lokasi** (required, shared across all items)
+- **Item rows** (one or more; minimum 1 — remove button disabled on the last row):
+  - **Produk** (required)
+  - **Status Kontainer** (required for refillable products only) — `filled` / `empty`
+  - **Jumlah** (required) — positive integer ≥ 1; minimum 1; quantity is always positive — direction is set by the toggle
+  - **Tipe Penyesuaian toggle** (per item) — green **"+ Tambah"** (add stock) / red **"− Kurangi"** (remove stock); defaults to Tambah
+- **"+ Tambah Produk"** button to add a new item row
+- **Alasan / Catatan** (required, shared across all items)
+
+**Movement type:** `adjustment` (stored as string `"Adjustment"` in DB — no schema migration needed).
+
+**Endpoints:**
+- `POST /api/stock/adjustment` — original single-item endpoint; **kept unchanged** for backward compatibility.
+- `POST /api/stock/adjustment/bulk` — new bulk endpoint (owner only); body: `{ location_id, note, items: [{ product_id, adjustment_quantity, container_status? }] }`. The server creates one `StockMovement` per item, all sharing a single `batch_id` for atomic reversal.
+
+
 ### 9.3 Validation Rules
 
 | ID | Field | Rule | Error Message |
@@ -871,6 +924,34 @@ Owner can view **all** customers with a non-zero net container balance via the *
 - **Net > 0 (orange/amber):** Customer holds our unreturned containers — show "[CustomerName] masih memegang [N] kontainer kami" with a "Catat Pengembalian" inline form.
 - **Net < 0 (blue/info):** We hold customer's excess empties — show "[N] kontainer milik [CustomerName] ada di truk — kembalikan saat pengiriman berikutnya." No standalone action button; resolved via the next delivery transaction.
 
+
+---
+
+**FR-CON-006 — Standalone Container Loan Input**
+
+Owner can manually record container loans or returns without going through a transaction. This handles cases where a customer picks up or returns containers outside the normal delivery flow.
+
+**Trigger:** "+ Kontainer Manual" button in the **Kontainer** tab header. Clicking it expands an inline form below the button.
+
+**Direction toggle (pill):**
+- **"Pinjam ke Pelanggan"** — owner lends containers to the customer (qty stored as positive)
+- **"Terima dari Pelanggan"** — owner receives containers back (qty stored as negative; service applies sign automatically)
+
+UI always shows quantity as a positive number; sign is applied by the service.
+
+**Form fields:**
+- **Pelanggan** (required) — customer selector (active customers only)
+- **Lokasi** (required) — location selector (active locations only); shared across all items; determines which stock location is affected
+- **Produk rows** (at least one required) — each row has: product selector (refillable only) + Status Kontainer (Terisi/Kosong) + positive quantity
+- **+ Tambah Produk** button to add more rows
+- **Catatan** (optional) — shared note for all items
+
+**Submit:** Calls `POST /api/container-loans/bulk`. On success: form collapses, Kontainer tab data reloads.
+
+**Stock movement side-effect:** For each item, one `StockMovement` of type `Adjustment` is created in the same DB transaction. All movements share a `BatchId`. Direction: lending to customer (`qty > 0`) → `FromLocationId = locationId` (stock leaves); receiving from customer (`qty < 0`) → `ToLocationId = locationId` (stock arrives).
+
+**Endpoint:** `POST /api/container-loans/bulk` — owner only.
+
 ### 12.3 Validation Rules
 
 | ID | Field | Rule | Error Message |
@@ -878,6 +959,8 @@ Owner can view **all** customers with a non-zero net container balance via the *
 | VAL-CON-001 | `product_id` | Required, `refillable` products only | `"Hanya produk refillable yang bisa dipinjamkan."` |
 | VAL-CON-002 | `customer_id` | Required, active customer | `"Pelanggan wajib dipilih."` |
 | VAL-CON-003 | `quantity` | Required, non-zero integer | `"Jumlah wajib diisi dan tidak boleh nol."` |
+| VAL-CON-004 | `location_id` | Required, active location | `"Lokasi tidak valid."` |
+| VAL-CON-005 | `container_status` | Required per item, must be `filled` or `empty` | `"Status kontainer harus 'filled' atau 'empty' untuk pinjaman kontainer."` |
 
 ### 12.4 UI Behavior
 

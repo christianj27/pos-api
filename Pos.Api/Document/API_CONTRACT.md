@@ -528,7 +528,7 @@ Returns aggregated (net) container balances per product, not a raw event log.
 | `id` | string (UUID) | — |
 | `product_id` | string (UUID) | — |
 | `product_name` | string | — |
-| `movement_type` | string | `receive` \| `transfer` \| `dispatch` \| `defect` \| `production` |
+| `movement_type` | string | `receive` \| `transfer` \| `dispatch` \| `defect` \| `production` \| `adjustment` |
 | `container_status` | string \| null | `filled` \| `empty` \| `na`; null for simple products |
 | `quantity` | number | Always positive |
 | `from_location_id` | string (UUID) \| null | Source location; null for external receives |
@@ -539,6 +539,9 @@ Returns aggregated (net) container balances per product, not a raw event log.
 | `note` | string \| null | — |
 | `created_by_name` | string | — |
 | `created_at` | string (ISO 8601) | — |
+| `batch_id` | string (UUID) \| null | Groups all movements created in a single API call; used for atomic reversal |
+| `is_reversed` | boolean | `true` when this movement has been cancelled by a reversal; excluded from purchase cost aggregation |
+| `is_reversal` | boolean | `true` when this movement is a compensating correction entry created by a reversal |
 
 > ⚠️ **Known gap #6 (resolved)**: Frontend `StockMovement.note` now matches backend `note` field.
 
@@ -678,6 +681,67 @@ _(In-house refill: atomically decrements empty stock and increments filled stock
 | `note` | string | ❌ | max 255 chars |
 
 **Response `201`** — array of 2 StockMovement objects: `[empty_out, filled_in]`.
+
+---
+
+### POST /api/stock/movements/{id}/reverse
+**Auth**: Owner only  
+_(Cancel a movement batch atomically; reverses all movements sharing the same `batch_id`)_
+
+**Path Params**
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string (UUID) | ✅ | ID of any movement in the batch to reverse |
+
+**Rules:**
+- `movement_type = dispatch` cannot be reversed via this endpoint (use transaction cancellation)
+- `is_reversed = true` or `is_reversal = true` movements cannot be reversed again
+- All movements sharing the same `batch_id` are reversed together atomically
+
+**Response `200`** — array of newly created StockMovement objects (the compensating movements), each with `is_reversal = true`.
+
+**Response `400`** — `{ "message": "..." }` if movement not found, already reversed, or is a dispatch.
+
+---
+
+### POST /api/stock/adjustment
+**Auth**: Owner only  
+_(Create a manual stock adjustment to reconcile physical vs system stock)_
+
+**Request Body**
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `location_id` | string (UUID) | ✅ | Location being adjusted |
+| `product_id` | string (UUID) | ✅ | Product being adjusted |
+| `adjustment_quantity` | number | ✅ | Signed integer; positive = add stock, negative = remove stock; cannot be 0 |
+| `container_status` | string | ❌ | Required for refillable products: `filled` or `empty` |
+| `note` | string | ✅ | Reason for adjustment; required; max 255 chars |
+
+**Movement type stored:** `adjustment`
+
+**Response `200`** — `{ "message": "Penyesuaian stok berhasil." }`
+
+**Response `400`** — `{ "message": "..." }` if validation fails.
+
+---
+
+### POST /api/stock/adjustment/bulk
+**Auth**: Owner only  
+_(Create a bulk manual stock adjustment — multiple products in a single operation; all share one BatchId for atomic reversal)_
+
+**Request Body**
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `location_id` | string (UUID) | ✅ | Location being adjusted (shared) |
+| `note` | string | ✅ | Reason for adjustment; required; max 255 chars (shared) |
+| `items` | array | ✅ | One or more adjustment items |
+| `items[].product_id` | string (UUID) | ✅ | Product being adjusted |
+| `items[].adjustment_quantity` | number | ✅ | Signed integer; positive = add stock, negative = remove stock; cannot be 0 |
+| `items[].container_status` | string | ❌ | Required for refillable products: `filled` or `empty` |
+
+**Response `200`** — `{ "message": "Penyesuaian stok berhasil dicatat." }`
+
+**Response `400`** — `{ "message": "..." }` if validation fails.
 
 ---
 
@@ -955,6 +1019,26 @@ Returns the raw event log (not aggregated). Each record represents a single loan
 **Response `201`** — ContainerLoan object.
 
 > ✅ **Known gap #3 (resolved)**: `notes` field added to `CreateContainerLoanRequest` and `note` exposed in `ContainerLoanResponse`. Field is now persisted and returned.
+
+---
+
+### POST /api/container-loans/bulk
+**Auth**: Owner only  
+_(Record multiple container loans or returns for one customer without a transaction)_
+
+**Request Body**
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `customer_id` | string (UUID) | ✅ | Must be an active customer |
+| `items` | array | ✅ | At least one item required |
+| `items[].product_id` | string (UUID) | ✅ | Must be `category = refillable` |
+| `items[].quantity` | number | ✅ | Positive = lend to customer; negative = receive from customer; cannot be 0 |
+| `items[].note` | string | ❌ | Per-item note (overrides shared note for this item) |
+| `note` | string | ❌ | Shared note applied to all items |
+
+**Response `200`** — array of ContainerLoan objects (one per item).
+
+**Response `400`** — `{ "message": "..." }` if customer inactive, any product not refillable, or any quantity is 0.
 
 ---
 

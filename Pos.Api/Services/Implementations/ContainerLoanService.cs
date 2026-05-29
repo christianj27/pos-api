@@ -29,6 +29,7 @@ public class ContainerLoanService(AppDbContext db) : IContainerLoanService
             .ToListAsync();
     }
 
+    [Obsolete("Use CreateBulkAsync instead for better performance and stock movement recording")]
     public async Task<(ContainerLoanResponse? Loan, string? Error)> CreateAsync(
         CreateContainerLoanRequest request, Guid createdBy)
     {
@@ -59,5 +60,79 @@ public class ContainerLoanService(AppDbContext db) : IContainerLoanService
             loan.Id, null, customer.Id, customer.Name,
             product.Id, product.Name, product.Unit,
             loan.Quantity, loan.Note, creator!.Name, loan.CreatedAt), null);
+    }
+
+    public async Task<(IEnumerable<ContainerLoanResponse>? Loans, string? Error)> CreateBulkAsync(
+        BulkCreateContainerLoanRequest request, Guid createdBy)
+    {
+        var customer = await db.Customers.FindAsync(request.CustomerId);
+        if (customer is null || !customer.IsActive)
+            return (null, "Pelanggan tidak valid.");
+
+        var location = await db.Locations.FindAsync(request.LocationId);
+        if (location is null || !location.IsActive)
+            return (null, "Lokasi tidak valid.");
+
+        var productIds = request.Items.Select(i => i.ProductId).Distinct().ToList();
+        var products = await db.Products
+            .Where(p => productIds.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id);
+
+        foreach (var item in request.Items)
+        {
+            if (!products.TryGetValue(item.ProductId, out var prod) || prod.Category != ProductCategory.Refillable)
+                return (null, $"Produk {item.ProductId} tidak ditemukan atau bukan produk refillable.");
+            if (item.Quantity == 0)
+                return (null, "Jumlah tidak boleh nol.");
+            if (!Enum.TryParse<ContainerStatus>(item.ContainerStatus, ignoreCase: true, out var cs) || cs == ContainerStatus.Na)
+                return (null, $"Status kontainer tidak valid untuk produk {item.ProductId}. Pilih 'filled' atau 'empty'.");
+        }
+
+        var creator = await db.Users.FindAsync(createdBy);
+        var loans = new List<ContainerLoan>();
+        var batchId = Guid.NewGuid();
+
+        foreach (var item in request.Items)
+        {
+            var prod = products[item.ProductId];
+            var loan = new ContainerLoan
+            {
+                CustomerId = request.CustomerId,
+                ProductId = item.ProductId,
+                Quantity = item.Quantity,
+                Note = item.Note ?? request.Note,
+                CreatedBy = createdBy
+            };
+            db.ContainerLoans.Add(loan);
+            loans.Add(loan);
+
+            Enum.TryParse<ContainerStatus>(item.ContainerStatus, ignoreCase: true, out var containerStatus);
+            var isLending = item.Quantity > 0; // positive = lending to customer = containers leave location
+            db.StockMovements.Add(new StockMovement
+            {
+                ProductId = item.ProductId,
+                MovementType = MovementType.Adjustment,
+                ContainerStatus = containerStatus,
+                Quantity = Math.Abs(item.Quantity),
+                FromLocationId = isLending ? request.LocationId : null,
+                ToLocationId = isLending ? null : request.LocationId,
+                Note = item.Note ?? request.Note ?? "Kontainer manual",
+                CreatedBy = createdBy,
+                BatchId = batchId
+            });
+        }
+
+        await db.SaveChangesAsync();
+
+        var responses = loans.Select(l =>
+        {
+            var prod = products[l.ProductId];
+            return new ContainerLoanResponse(
+                l.Id, null, customer.Id, customer.Name,
+                prod.Id, prod.Name, prod.Unit,
+                l.Quantity, l.Note, creator!.Name, l.CreatedAt);
+        });
+
+        return (responses, null);
     }
 }
