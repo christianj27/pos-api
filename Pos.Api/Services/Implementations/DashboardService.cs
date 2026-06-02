@@ -137,7 +137,10 @@ public class DashboardService(AppDbContext db) : IDashboardService
 
         var totalOutstandingDebt = customerDebts.Sum(d => d.OutstandingDebt);
 
-        // Daily stock movement summary (FR-DSH-012) — per-product aggregated deltas, excluding cancelled movements
+        // Daily stock movement summary (FR-DSH-012) — sold and received per product, excluding cancelled movements
+        // Sold:     Dispatch movements. Refillable = filled container qty; Simple = all dispatch qty.
+        // Received: Inbound movements (ToLocationId != null && FromLocationId == null).
+        //           Refillable = filled container qty only; Simple = all inbound qty.
         var dayMovements = await db.StockMovements
             .Include(m => m.Product)
             .Where(m => m.CreatedAt >= start && m.CreatedAt < end && !m.IsReversed && !m.IsReversal)
@@ -149,46 +152,29 @@ public class DashboardService(AppDbContext db) : IDashboardService
             {
                 var isRefillable = pg.Key.Category == ProductCategory.Refillable;
 
-                var byType = pg.GroupBy(m => m.MovementType).Select(tg =>
-                {
-                    int filledDelta = 0, emptyDelta = 0, simpleDelta = 0;
-                    foreach (var m in tg)
-                    {
-                        if (m.MovementType == MovementType.Production)
-                        {
-                            // In-place conversion: empty containers → filled at same location
-                            filledDelta += m.Quantity;
-                            emptyDelta  -= m.Quantity;
-                        }
-                        else
-                        {
-                            bool isIn  = m.ToLocationId   != null && m.FromLocationId == null;
-                            bool isOut = m.FromLocationId != null && m.ToLocationId   == null;
-                            int dir = isIn ? 1 : (isOut ? -1 : 0);
-                            if (isRefillable)
-                            {
-                                if      (m.ContainerStatus == ContainerStatus.Filled) filledDelta += dir * m.Quantity;
-                                else if (m.ContainerStatus == ContainerStatus.Empty)  emptyDelta  += dir * m.Quantity;
-                            }
-                            else
-                            {
-                                simpleDelta += dir * m.Quantity;
-                            }
-                        }
-                    }
-                    return new DailyMovementBreakdownItem(tg.Key.ToString().ToLower(), filledDelta, emptyDelta, simpleDelta);
-                }).ToList();
+                var totalSold = isRefillable
+                    ? pg.Where(m => m.MovementType == MovementType.Dispatch
+                                 && m.ContainerStatus == ContainerStatus.Filled)
+                         .Sum(m => m.Quantity)
+                    : pg.Where(m => m.MovementType == MovementType.Dispatch)
+                         .Sum(m => m.Quantity);
+
+                var totalReceived = isRefillable
+                    ? pg.Where(m => m.ToLocationId != null && m.FromLocationId == null
+                                 && m.ContainerStatus == ContainerStatus.Filled)
+                         .Sum(m => m.Quantity)
+                    : pg.Where(m => m.ToLocationId != null && m.FromLocationId == null)
+                         .Sum(m => m.Quantity);
 
                 return new DailyStockProductSummary(
                     pg.Key.ProductId,
                     pg.Key.Name,
                     pg.Key.Unit,
                     pg.Key.Category.ToString().ToLower(),
-                    byType.Sum(t => t.FilledDelta),
-                    byType.Sum(t => t.EmptyDelta),
-                    byType.Sum(t => t.SimpleDelta),
-                    byType);
+                    totalReceived,
+                    totalSold);
             })
+            .Where(s => s.TotalReceived > 0 || s.TotalSold > 0)
             .OrderBy(s => s.ProductName)
             .ToList();
 

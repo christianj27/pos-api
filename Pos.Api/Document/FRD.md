@@ -7,6 +7,8 @@
 
 | Version | Date | Author | Changes |
 |---|---|---|---------|
+| 5.2 | June 2, 2026 | — | FR-DSH-012 updated — "Pergerakan Stok" reworked from delta model to **sold/received model**. `daily_stock_summary` array now carries `total_sold` and `total_received` per product instead of `net_filled_delta`, `net_empty_delta`, `net_simple_delta`, and the `breakdown` array. **Sold** = `dispatch` movements: Refillable → filled-container qty only; Simple → all dispatch qty. **Received** = inbound movements (`to_location_id != null && from_location_id == null`): Refillable → filled-container qty only; Simple → all inbound qty. Products with zero activity in both dimensions are excluded. The detail modal (opened by clicking a product row) now shows a **per-staff sold/received table** (`computeStaffBreakdown`) instead of the old per-movement list; `is_owner` check and purchase-cost total row removed. Backend: `DailyMovementBreakdownItem` DTO record removed; `DailyStockProductSummary` record fields changed to `TotalReceived`/`TotalSold`; `DashboardService.GetDashboardAsync` computation rewritten. Frontend: `DailyMovementBreakdownItem` interface removed from `types/index.ts`; `DailyStockProductSummary` updated; `DeltaChip` component removed; `DailyStockSummaryRow` shows Terjual/Diterima chips; `StockMovementDetailModal` rebuilt with `computeStaffBreakdown` helper; new `.staffSummaryHeader`/`.staffSummaryRow`/`.staffSummaryName`/`.staffSummaryCell`/`.staffSummaryZero` SCSS classes added; `dashboardService.ts` mock rewritten accordingly. |
+| 5.1 | May 29, 2026 | — | FR-STK-009, FR-STK-015, FR-TXN-021 upgraded from soft warning to **hard block** — negative stock is now strictly forbidden. When any item would result in negative stock the operation is blocked entirely: the warning dialog now shows only a "Tutup" dismiss button and the submit action is never invoked. Frontend: `ConfirmDialog` `onConfirm` prop made optional; all three negative-stock dialogs (`txConfirmOpen` in `TransactionsPage`, `transferConfirmOpen` + `bulkLoanConfirmOpen` in `StockPage`) have their `onConfirm` removed and their `cancelText` changed to "Tutup". FRD: FR-STK-009 renamed "Negative stock hard block"; FR-STK-015 and FR-TXN-021 updated accordingly. |
 | 5.0 | May 29, 2026 | — | FR-TXN-009 updated — Transaction cancellation is now restricted to **Owner only**. Kurir and Kasir can no longer cancel transactions, even their own. Backend: `TransactionService.UpdateStatusAsync` replaces the `kurir`/`kasir` ownership check with a blanket owner-only guard — returns `400 "Hanya owner yang dapat membatalkan transaksi."` for non-owner callers. Frontend: `TransactionsPage` cancel button (`Batalkan`) is now wrapped with an `isOwner` guard and is no longer rendered for Kurir/Kasir. ARCHITECTURE.md updated: `PUT /api/transactions/{id}/status` authorization changed from "owner can cancel any; kurir/kasir can cancel own only" to "owner only". |
 | 4.9 | May 26, 2026 | — | FR-DSH-012 — Dashboard Daily Stock Movement Summary: new "Pergerakan Stok" section added to Dashboard above "Stok Gudang". Shows per-product aggregated net stock movement deltas for the selected date (all non-cancelled movements). Cancelled movements (`is_reversed = true` AND `is_reversal = true`) are excluded. Each product row is clickable to open a detail modal showing individual movements with time, type, quantity, container status, location, and staff; purchase cost visible to owner only. Deltas are color-coded: green for stock in, red for stock out. Breakdown groups by movement type (Terima/Kirim/Transfer/Defek/Produksi/Penyesuaian). Section is visible to all roles store-wide (same as Stok Gudang). Backend: `GET /api/dashboard` response extended with `daily_stock_summary` array; new DTO records `DailyMovementBreakdownItem` and `DailyStockProductSummary` added to `Pos.Api/DTOs/Dashboard/`; `DashboardService.GetDashboardAsync` computes per-product movement aggregates for the date. Frontend: new `DailyMovementBreakdownItem` and `DailyStockProductSummary` interfaces added to `types/index.ts`; `DashboardStats` extended with `dailyStockSummary`; mock computation added to `dashboardService.ts`; new `DailyStockSummaryRow` and `StockMovementDetailModal` sub-components in `DashboardPage.tsx`; new styles in `DashboardPage.module.scss`. Detail modal calls existing `GET /api/stock/movements?date=YYYY-MM-DD` and filters by product client-side. |
 | 4.8 | May 28, 2026 | — | FR-CON-006 upgraded — Kontainer Manual form now records stock movements: `BulkCreateContainerLoanRequest` gains required `location_id` (shared) and per-item `container_status` (`filled`/`empty`). `ContainerLoanService.CreateBulkAsync` now creates one `StockMovement` (type `Adjustment`) per item in the same DB transaction, using a shared `BatchId`. Movement direction: lending to customer → `FromLocationId = locationId`, returning from customer → `ToLocationId = locationId`. Frontend: `BulkContainerLoanItem` and `CreateBulkContainerLoanRequest` types extended; `StockPage` bulk loan form gains a Location `<Select>` (shared) and per-item Status Kontainer `<Select>` (Terisi/Kosong); validation guards added for empty location and containerStatus. New validation rules VAL-CON-004 (location required) and VAL-CON-005 (containerStatus must be filled/empty). |
@@ -499,8 +501,8 @@ Owner records a defective item:
 **FR-STK-008 — Stock movement history**
 Paginated list showing: date/time, product, movement type, container status, quantity, from/to location, note, recorded by.
 
-**FR-STK-009 — Negative stock soft warning**
-On stock-out/dispatch/transfer-out: if quantity would result in stock going below zero, display `"Peringatan: Ini akan membuat stok [nama produk] menjadi di bawah nol."` Submission is not blocked.
+**FR-STK-009 — Negative stock hard block**
+On stock-out/dispatch/transfer-out: if any item's requested quantity would result in stock going below zero, the operation is **blocked**. A dialog is shown listing the affected products with their available and requested quantities. The dialog provides only a dismiss button — the user must revise the quantities before the operation can proceed. Negative stock is not permitted under any circumstance.
 
 **FR-STK-010 — Vendor exchange**
 Owner **or Kurir** records a vendor exchange (taking empties to vendor, receiving filled stock):
@@ -531,8 +533,8 @@ The Vendor Exchange tab shall support submitting multiple products in a single o
 
 The server creates two `StockMovements` records per item atomically (same as single-product `POST /api/stock/vendor-exchange`).
 
-**FR-STK-015 — Negative stock warning for Transfer tab**
-Before submitting a transfer, the frontend checks each item's requested quantity against the current stock level at the source location (`from_location_id`). For simple products, `quantity_total` is used; for refillable products, `quantity_filled` (if `container_status = filled`) or `quantity_empty` (if `container_status = empty`) is used. If any item would result in negative stock (available − requested < 0), a `ConfirmDialog` is displayed listing the affected products with their available and requested quantities. The user may confirm to proceed anyway (soft warning — the API does not enforce a minimum) or cancel to revise the form. The check runs on every submit attempt and uses the `levels` data already loaded on the Stock page.
+**FR-STK-015 — Negative stock hard block for Transfer tab**
+Before submitting a transfer, the frontend checks each item's requested quantity against the current stock level at the source location (`from_location_id`). For simple products, `quantity_total` is used; for refillable products, `quantity_filled` (if `container_status = filled`) or `quantity_empty` (if `container_status = empty`) is used. If any item would result in negative stock (available − requested < 0), the transfer is **blocked**: a dialog is displayed listing the affected products with their available and requested quantities, providing only a dismiss button. The user must revise the quantities before the transfer can be submitted. The check runs on every submit attempt and uses the `levels` data already loaded on the Stock page.
 
 **FR-STK-016 — Auto-populate Transfer tab from vehicle stock**
 When the user selects a vehicle location as the "Dari Lokasi" in the Transfer tab, the item list is automatically pre-filled with all products currently stocked on that vehicle, using the `levels` data already loaded on page mount. Population rules:
@@ -540,7 +542,7 @@ When the user selects a vehicle location as the "Dari Lokasi" in the Transfer ta
 - `refillable` product with `quantity_filled > 0` → one row with `container_status = filled` and `quantity = quantity_filled`
 - `refillable` product with `quantity_empty > 0` → one row with `container_status = empty` and `quantity = quantity_empty`
 
-If the vehicle has no stock, the list resets to a single blank row (no banner). When the user switches the source location to a warehouse or clears it, the list also resets to a single blank row. When switching between two vehicle locations, the list re-populates with the newly selected vehicle’s stock. The user can still edit quantities, remove rows, or add rows after auto-population. The negative-stock `ConfirmDialog` (FR-STK-015) continues to apply normally after auto-population. No new API endpoints are required — the feature reads from `levels` state already maintained by the Stock page.
+If the vehicle has no stock, the list resets to a single blank row (no banner). When the user switches the source location to a warehouse or clears it, the list also resets to a single blank row. When switching between two vehicle locations, the list re-populates with the newly selected vehicle’s stock. The user can still edit quantities, remove rows, or add rows after auto-population. The negative-stock hard block (FR-STK-015) continues to apply normally after auto-population. No new API endpoints are required — the feature reads from `levels` state already maintained by the Stock page.
 
 ---
 
@@ -765,8 +767,8 @@ Owner and Kasir can cancel a pending assignment via a confirm dialog. No stock e
 **FR-TXN-020 — Assignment status model**
 `DeliveryAssignmentStatus` has three values: `pending`, `fulfilled`, `cancelled`. Only `pending` assignments can be processed or cancelled.
 
-**FR-TXN-021 — Negative stock warning on transaction creation**
-Before submitting in Langkah 3, the frontend checks each cart item's quantity against the current stock level at the selected `location_id`. For refillable products, `quantity_filled` is used (transactions always dispatch filled stock); for simple products, `quantity_total` is used. If any item would result in negative stock (available − quantity < 0), a `ConfirmDialog` is shown with the list of affected products. The user may confirm to proceed or cancel. This warning applies to both regular transaction creation and Kurir fulfillment of a delivery assignment. Stock levels are loaded in the page's `load()` function alongside other data.
+**FR-TXN-021 — Negative stock hard block on transaction creation**
+Before submitting in Langkah 3, the frontend checks each cart item's quantity against the current stock level at the selected `location_id`. For refillable products, `quantity_filled` is used (transactions always dispatch filled stock); for simple products, `quantity_total` is used. If any item would result in negative stock (available − quantity < 0), the transaction is **blocked**: a dialog is shown listing the affected products with their available and requested quantities, providing only a dismiss button. The user must reduce the quantities before the transaction can be submitted. This applies to both regular transaction creation and Kurir fulfillment of a delivery assignment. Stock levels are loaded in the page's `load()` function alongside other data.
 
 ### 10.3 Validation Rules
 
@@ -1053,8 +1055,26 @@ The dashboard is accessible to all authenticated roles (owner, kasir, kurir). Fo
 - `/dashboard` route is accessible to `['owner', 'kasir', 'kurir']`.
 - Bottom Navigation for kasir and kurir gains a **Dashboard** item as the first entry (was 4 items; now 5).
 
+**FR-DSH-012 — Daily Stock Movement Summary ("Pergerakan Stok")**
+The dashboard shall include a **"Pergerakan Stok"** section positioned above "Stok Gudang". It shows per-product **sold** and **received** totals for the selected date across the whole store. This section is visible to all roles (store-wide, not user-scoped).
+
+**Definitions:**
+- **Terjual (Sold):** `dispatch` movements only.
+  - Refillable products → only movements where `container_status = 'filled'` (filled containers dispatched to customers = units sold).
+  - Simple products → all dispatch movements regardless of container status.
+- **Diterima (Received):** Inbound movements only (`to_location_id IS NOT NULL AND from_location_id IS NULL`).
+  - Refillable products → only movements where `container_status = 'filled'` (filled stock arriving at any location).
+  - Simple products → all inbound movements.
+- **Excluded:** Transfer, defect, production, and adjustment movement types are not counted in either dimension. Cancelled movements (`is_reversed = true` or `is_reversal = true`) are excluded.
+- Products with both `total_sold = 0` and `total_received = 0` are omitted from the list.
+
+**Detail modal:** Clicking a product row opens a modal titled **"Pergerakan Stok — {productName}"** showing a per-staff sold/received summary table. The table groups movements for that product and date by `created_by_name`, computing each staff member's sold and received totals using the same definitions above. Rows are sorted by sold descending. The data is filtered client-side from the existing `GET /api/stock/movements?date=YYYY-MM-DD` endpoint — no new API endpoint.
+
+**Backend:** `GET /api/dashboard` response includes `daily_stock_summary` array: `[{ product_id, product_name, product_unit, product_category, total_sold, total_received }]` sorted alphabetically by product name.
+
 ### 13.3 UI Behavior
 
+- **Pergerakan Stok section (FR-DSH-012):** Positioned above "Stok Gudang". One row per product with `total_sold > 0 || total_received > 0` for the selected date. Each row shows the product name and unit (left) and two chips (right): a red **"Terjual N"** chip when `total_sold > 0` and a green **"Diterima N"** chip when `total_received > 0`. Each row is clickable to open a per-staff detail modal showing sold/received totals per staff member for that product. Filtered by the dashboard date picker. Shown to all roles. Empty state: `"Tidak ada pergerakan stok pada tanggal ini."`
 - **Layout:** 2×3 stat card grid on mobile (2 columns, 3 rows), wider grid on tablet+. For kasir/kurir the Biaya Pembelian card is hidden, resulting in a 2×2 (or adjusted) grid.
 - **Date filter:** Date picker rendered at the top of the dashboard page; defaults to today. Changing the date immediately re-fetches `GET /api/dashboard?date=YYYY-MM-DD` and updates all sections. A `"Hari Ini"` shortcut button resets the filter to today.
 - **Revenue % delta:** The Pendapatan card displays a secondary line showing `↑ +X%` (green) or `↓ -X%` (red) comparing today's revenue to the previous day (`previous_day_revenue`). Hidden when previous day revenue = 0.

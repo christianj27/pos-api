@@ -244,4 +244,153 @@ public class DashboardServiceTests
         for (int i = 0; i < recent.Count - 1; i++)
             Assert.True(recent[i].CreatedAt >= recent[i + 1].CreatedAt);
     }
+
+    // ── DailyStockSummary — FR-DSH-012 ────────────────────────────────────
+
+    [Fact]
+    public async Task GetDashboard_DailyStockSummary_SimpleProduct_DispatchCountsAsSold()
+    {
+        var simpleProductId = Guid.NewGuid();
+        _db.Products.Add(new Product
+        {
+            Id = simpleProductId, Name = "Aqua", Category = ProductCategory.Simple,
+            Type = ProductType.Air, Unit = "karton", BasePrice = 30000m, IsActive = true
+        });
+        _db.StockMovements.Add(new StockMovement
+        {
+            Id = Guid.NewGuid(), ProductId = simpleProductId,
+            MovementType = MovementType.Dispatch, ContainerStatus = ContainerStatus.Na,
+            Quantity = 5, FromLocationId = WarehouseId,
+            CreatedBy = KasirId, CreatedAt = DateTime.UtcNow
+        });
+        _db.SaveChanges();
+
+        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
+        var entry = result.DailyStockSummary.Single(s => s.ProductId == simpleProductId);
+
+        Assert.Equal(5, entry.TotalSold);
+        Assert.Equal(0, entry.TotalReceived);
+    }
+
+    [Fact]
+    public async Task GetDashboard_DailyStockSummary_SimpleProduct_InboundCountsAsReceived()
+    {
+        var simpleProductId = Guid.NewGuid();
+        _db.Products.Add(new Product
+        {
+            Id = simpleProductId, Name = "Aqua", Category = ProductCategory.Simple,
+            Type = ProductType.Air, Unit = "karton", BasePrice = 30000m, IsActive = true
+        });
+        _db.StockMovements.Add(new StockMovement
+        {
+            Id = Guid.NewGuid(), ProductId = simpleProductId,
+            MovementType = MovementType.Receive, ContainerStatus = ContainerStatus.Na,
+            Quantity = 10, ToLocationId = WarehouseId,
+            CreatedBy = OwnerId, CreatedAt = DateTime.UtcNow
+        });
+        _db.SaveChanges();
+
+        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
+        var entry = result.DailyStockSummary.Single(s => s.ProductId == simpleProductId);
+
+        Assert.Equal(10, entry.TotalReceived);
+        Assert.Equal(0, entry.TotalSold);
+    }
+
+    [Fact]
+    public async Task GetDashboard_DailyStockSummary_RefillableProduct_DispatchFilledCountsAsSold()
+    {
+        // Dispatch + filled container = sold (filled units delivered to customer)
+        _db.StockMovements.Add(new StockMovement
+        {
+            Id = Guid.NewGuid(), ProductId = ProductId,
+            MovementType = MovementType.Dispatch, ContainerStatus = ContainerStatus.Filled,
+            Quantity = 3, FromLocationId = WarehouseId,
+            CreatedBy = KurirId, CreatedAt = DateTime.UtcNow
+        });
+        _db.SaveChanges();
+
+        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
+        var entry = result.DailyStockSummary.Single(s => s.ProductId == ProductId);
+
+        Assert.Equal(3, entry.TotalSold);
+        Assert.Equal(0, entry.TotalReceived);
+    }
+
+    [Fact]
+    public async Task GetDashboard_DailyStockSummary_RefillableProduct_DispatchEmptyNotCountedAsSold()
+    {
+        // Dispatch + empty container does NOT count as sold
+        _db.StockMovements.Add(new StockMovement
+        {
+            Id = Guid.NewGuid(), ProductId = ProductId,
+            MovementType = MovementType.Dispatch, ContainerStatus = ContainerStatus.Empty,
+            Quantity = 2, FromLocationId = WarehouseId,
+            CreatedBy = KurirId, CreatedAt = DateTime.UtcNow
+        });
+        _db.SaveChanges();
+
+        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
+        var entry = result.DailyStockSummary.FirstOrDefault(s => s.ProductId == ProductId);
+
+        // No sold/received activity → product is filtered out
+        Assert.Null(entry);
+    }
+
+    [Fact]
+    public async Task GetDashboard_DailyStockSummary_RefillableProduct_InboundFilledCountsAsReceived()
+    {
+        _db.StockMovements.Add(new StockMovement
+        {
+            Id = Guid.NewGuid(), ProductId = ProductId,
+            MovementType = MovementType.Receive, ContainerStatus = ContainerStatus.Filled,
+            Quantity = 7, ToLocationId = WarehouseId,
+            CreatedBy = OwnerId, CreatedAt = DateTime.UtcNow
+        });
+        _db.SaveChanges();
+
+        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
+        var entry = result.DailyStockSummary.Single(s => s.ProductId == ProductId);
+
+        Assert.Equal(7, entry.TotalReceived);
+        Assert.Equal(0, entry.TotalSold);
+    }
+
+    [Fact]
+    public async Task GetDashboard_DailyStockSummary_RefillableProduct_InboundEmptyNotCountedAsReceived()
+    {
+        // Inbound + empty container does NOT count as received
+        _db.StockMovements.Add(new StockMovement
+        {
+            Id = Guid.NewGuid(), ProductId = ProductId,
+            MovementType = MovementType.Receive, ContainerStatus = ContainerStatus.Empty,
+            Quantity = 4, ToLocationId = WarehouseId,
+            CreatedBy = OwnerId, CreatedAt = DateTime.UtcNow
+        });
+        _db.SaveChanges();
+
+        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
+        var entry = result.DailyStockSummary.FirstOrDefault(s => s.ProductId == ProductId);
+
+        Assert.Null(entry);
+    }
+
+    [Fact]
+    public async Task GetDashboard_DailyStockSummary_ReversedMovement_Excluded()
+    {
+        _db.StockMovements.Add(new StockMovement
+        {
+            Id = Guid.NewGuid(), ProductId = ProductId,
+            MovementType = MovementType.Dispatch, ContainerStatus = ContainerStatus.Filled,
+            Quantity = 5, FromLocationId = WarehouseId,
+            IsReversed = true,
+            CreatedBy = KurirId, CreatedAt = DateTime.UtcNow
+        });
+        _db.SaveChanges();
+
+        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
+        var entry = result.DailyStockSummary.FirstOrDefault(s => s.ProductId == ProductId);
+
+        Assert.Null(entry);
+    }
 }
