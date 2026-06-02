@@ -117,6 +117,38 @@ public class StockService(AppDbContext db) : IStockService
         if (movType == MovementType.Defect && string.IsNullOrWhiteSpace(request.Note))
             return (false, "Catatan wajib diisi untuk barang cacat.");
 
+        if (movType == MovementType.Defect && product.Category == ProductCategory.Refillable && status != ContainerStatus.Filled)
+            return (false, "Untuk produk refillable, defek hanya berlaku untuk kontainer terisi.");
+
+        if (movType == MovementType.Defect && product.Category == ProductCategory.Refillable)
+        {
+            var batchId = Guid.NewGuid();
+            db.StockMovements.Add(new StockMovement
+            {
+                ProductId = request.ProductId,
+                MovementType = MovementType.Defect,
+                ContainerStatus = ContainerStatus.Filled,
+                Quantity = request.Quantity,
+                FromLocationId = request.FromLocationId,
+                Note = request.Note,
+                CreatedBy = createdBy,
+                BatchId = batchId
+            });
+            db.StockMovements.Add(new StockMovement
+            {
+                ProductId = request.ProductId,
+                MovementType = MovementType.Defect,
+                ContainerStatus = ContainerStatus.Empty,
+                Quantity = request.Quantity,
+                ToLocationId = request.FromLocationId,
+                Note = request.Note,
+                CreatedBy = createdBy,
+                BatchId = batchId
+            });
+            await db.SaveChangesAsync();
+            return (true, null);
+        }
+
         db.StockMovements.Add(new StockMovement
         {
             ProductId = request.ProductId,
