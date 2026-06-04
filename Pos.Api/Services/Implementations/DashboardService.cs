@@ -178,10 +178,41 @@ public class DashboardService(AppDbContext db) : IDashboardService
             .OrderBy(s => s.ProductName)
             .ToList();
 
+        // Payment method breakdown (FR-DSH-013) — scoped to userId for non-owners
+        var paymentMethodBreakdown = new List<PaymentMethodBreakdownItem>();
+        IQueryable<Transaction> paymentQuery = db.Transactions
+            .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= start && t.CreatedAt < end);
+        if (!isOwner) paymentQuery = paymentQuery.Where(t => t.StaffId == userId);
+        
+        var paymentAggregates = await paymentQuery
+            .GroupBy(t => t.PaymentMethod)
+            .Select(g => new { Method = g.Key, Amount = g.Sum(t => t.PaidAmount), Count = g.Count() })
+            .ToListAsync();
+
+        // Map payment methods to labels and order as: cash, transfer, qris
+        var methodLabels = new Dictionary<string, string>
+        {
+            { "cash", "Tunai" },
+            { "transfer", "Transfer" },
+            { "qris", "QRIS" }
+        };
+
+        foreach (var method in new[] { "cash", "transfer", "qris" })
+        {
+            var agg = paymentAggregates.FirstOrDefault(a => a.Method.ToString().ToLower() == method);
+            paymentMethodBreakdown.Add(new PaymentMethodBreakdownItem(
+                method,
+                methodLabels.GetValueOrDefault(method, method),
+                agg?.Amount ?? 0,
+                agg?.Count ?? 0
+            ));
+        }
+
         return new DashboardResponse(
             todayRevenue, todayTransactions, todayPurchaseCost, todayDebtCollected,
             lowStockCount, totalOutstandingDebt, prevRevenue,
-            weeklyChart, recentResponses, warehouseStock, customerDebts, staffRevenue, dailyStockSummary);
+            weeklyChart, recentResponses, warehouseStock, customerDebts, staffRevenue, dailyStockSummary,
+            paymentMethodBreakdown);
     }
 
     private async Task<IEnumerable<WarehouseStockItem>> GetWarehouseStockAsync(Guid warehouseId, string locationName)

@@ -1,5 +1,12 @@
 namespace Pos.Api.DTOs.Dashboard;
 
+public record PaymentMethodBreakdownItem(
+    string Method,
+    string Label,
+    decimal Amount,
+    int Count
+);
+
 public record RecentTransactionDashboardItem(
     Guid Id,
     string Type,
@@ -53,5 +60,6 @@ public record DashboardResponse(
     IEnumerable<WarehouseStockItem> WarehouseStock,
     IEnumerable<CustomerDebtSummary> CustomerDebts,
     IEnumerable<StaffRevenueSummary> StaffRevenue,
-    IEnumerable<DailyStockProductSummary> DailyStockSummary
+    IEnumerable<DailyStockProductSummary> DailyStockSummary,
+    IEnumerable<PaymentMethodBreakdownItem> PaymentMethodBreakdown
 );
