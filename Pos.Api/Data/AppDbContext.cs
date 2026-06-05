@@ -201,6 +201,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
              .WithMany(u => u.DebtPayments)
              .HasForeignKey(dp => dp.CreatedBy)
              .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(dp => dp.Transaction)
+             .WithMany(t => t.DebtPayments)
+             .HasForeignKey(dp => dp.TransactionId)
+             .OnDelete(DeleteBehavior.SetNull);
         });
 
         // -- ContainerLoan -----------------------------------------------------

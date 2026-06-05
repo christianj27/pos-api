@@ -25,4 +25,5 @@ public class Transaction
     public ICollection<Payment> Payments { get; set; } = [];
     public ICollection<ContainerLoan> ContainerLoans { get; set; } = [];
     public ICollection<StockMovement> StockMovements { get; set; } = [];
+    public ICollection<DebtPayment> DebtPayments { get; set; } = [];
 }

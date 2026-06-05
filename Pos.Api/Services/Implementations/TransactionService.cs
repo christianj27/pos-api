@@ -189,6 +189,7 @@ public class TransactionService(AppDbContext db) : ITransactionService
                     CustomerId = request.CustomerId.Value,
                     Amount = request.DebtPaymentAmount.Value,
                     Method = payMethod,
+                    TransactionId = transaction.Id,
                     CreatedBy = staffId
                 });
             }

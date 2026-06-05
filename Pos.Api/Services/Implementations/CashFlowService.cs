@@ -44,9 +44,10 @@ public class CashFlowService(AppDbContext db) : ICashFlowService
 
         // 2. DebtPayments - cash_in/debt_payment
         var debtPayments = await db.DebtPayments
+            .Include(dp => dp.Transaction)
             .Include(dp => dp.Customer)
             .Include(dp => dp.Creator)
-            .Where(dp => dp.CreatedAt >= start && dp.CreatedAt < end)
+            .Where(dp => dp.CreatedAt >= start && dp.CreatedAt < end && (dp.Transaction == null || dp.Transaction.Status != TransactionStatus.Cancelled))
             .ToListAsync();
 
         foreach (var dp in debtPayments)

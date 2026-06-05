@@ -28,7 +28,8 @@ public class DashboardService(AppDbContext db) : IDashboardService
         var todayPurchaseCost = await dayMvBase.SumAsync(m => m.PurchaseCost ?? 0);
 
         IQueryable<DebtPayment> dayDpBase = db.DebtPayments
-            .Where(dp => dp.CreatedAt >= start && dp.CreatedAt < end);
+            .Include(dp => dp.Transaction)
+            .Where(dp => dp.CreatedAt >= start && dp.CreatedAt < end && (dp.Transaction == null || dp.Transaction.Status != TransactionStatus.Cancelled));
         if (!isOwner) dayDpBase = dayDpBase.Where(dp => dp.CreatedBy == userId);
         var todayDebtCollected = await dayDpBase.SumAsync(dp => dp.Amount);
 
@@ -127,7 +128,8 @@ public class DashboardService(AppDbContext db) : IDashboardService
                 .Where(t => t.CustomerId == c.Id && t.Status != TransactionStatus.Cancelled)
                 .SumAsync(t => t.DebtAmount);
             var debtPaid = await db.DebtPayments
-                .Where(dp => dp.CustomerId == c.Id)
+                .Include(dp => dp.Transaction)
+                .Where(dp => dp.CustomerId == c.Id && (dp.Transaction == null || dp.Transaction.Status != TransactionStatus.Cancelled))
                 .SumAsync(dp => dp.Amount);
             var outstanding = initialDebt + txDebt - debtPaid;
             if (outstanding > 0)

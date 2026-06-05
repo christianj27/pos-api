@@ -24,7 +24,8 @@ public class CustomerService(AppDbContext db) : ICustomerService
             .ToDictionaryAsync(x => x.CustomerId, x => x.Total);
 
         var totalPaid = await db.DebtPayments
-            .Where(dp => customerIds.Contains(dp.CustomerId))
+            .Include(dp => dp.Transaction)
+            .Where(dp => customerIds.Contains(dp.CustomerId) && (dp.Transaction == null || dp.Transaction.Status != Data.Enums.TransactionStatus.Cancelled))
             .GroupBy(dp => dp.CustomerId)
             .Select(g => new { CustomerId = g.Key, Total = g.Sum(dp => dp.Amount) })
             .ToDictionaryAsync(x => x.CustomerId, x => x.Total);
@@ -46,7 +47,8 @@ public class CustomerService(AppDbContext db) : ICustomerService
             .Where(t => t.CustomerId == id && t.Status != Data.Enums.TransactionStatus.Cancelled)
             .SumAsync(t => t.DebtAmount);
         var totalPaid = await db.DebtPayments
-            .Where(dp => dp.CustomerId == id)
+            .Include(dp => dp.Transaction)
+            .Where(dp => dp.CustomerId == id && (dp.Transaction == null || dp.Transaction.Status != Data.Enums.TransactionStatus.Cancelled))
             .SumAsync(dp => dp.Amount);
 
         return MapToResponse(c, c.InitialDebt + totalDebt - totalPaid);
@@ -92,7 +94,8 @@ public class CustomerService(AppDbContext db) : ICustomerService
             .Where(t => t.CustomerId == id && t.Status != Data.Enums.TransactionStatus.Cancelled)
             .SumAsync(t => t.DebtAmount);
         var totalPaid = await db.DebtPayments
-            .Where(dp => dp.CustomerId == id)
+            .Include(dp => dp.Transaction)
+            .Where(dp => dp.CustomerId == id && (dp.Transaction == null || dp.Transaction.Status != Data.Enums.TransactionStatus.Cancelled))
             .SumAsync(dp => dp.Amount);
 
         return (MapToResponse(customer, customer.InitialDebt + totalDebt - totalPaid), null);
@@ -152,7 +155,8 @@ public class CustomerService(AppDbContext db) : ICustomerService
             .SumAsync(t => t.DebtAmount);
 
         var totalPaid = await db.DebtPayments
-            .Where(dp => dp.CustomerId == customerId)
+            .Include(dp => dp.Transaction)
+            .Where(dp => dp.CustomerId == customerId && (dp.Transaction == null || dp.Transaction.Status != Data.Enums.TransactionStatus.Cancelled))
             .SumAsync(dp => dp.Amount);
 
         return new CustomerDebtSummaryResponse(customerId, customer.Name, customer.InitialDebt + totalDebt - totalPaid);
@@ -183,7 +187,8 @@ public class CustomerService(AppDbContext db) : ICustomerService
             .Where(t => t.CustomerId == customerId && t.Status != Data.Enums.TransactionStatus.Cancelled)
             .SumAsync(t => t.DebtAmount);
         var totalPaid = await db.DebtPayments
-            .Where(dp => dp.CustomerId == customerId)
+            .Include(dp => dp.Transaction)
+            .Where(dp => dp.CustomerId == customerId && (dp.Transaction == null || dp.Transaction.Status != Data.Enums.TransactionStatus.Cancelled))
             .SumAsync(dp => dp.Amount);
 
         var debtTxns = await db.Transactions
@@ -199,7 +204,8 @@ public class CustomerService(AppDbContext db) : ICustomerService
 
         var payments = await db.DebtPayments
             .Include(dp => dp.Creator)
-            .Where(dp => dp.CustomerId == customerId)
+            .Include(dp => dp.Transaction)
+            .Where(dp => dp.CustomerId == customerId && (dp.Transaction == null || dp.Transaction.Status != Data.Enums.TransactionStatus.Cancelled))
             .OrderByDescending(dp => dp.CreatedAt)
             .Select(dp => new DebtPaymentHistoryItem(dp.Id, dp.Amount, dp.Note, dp.Creator.Name, dp.CreatedAt))
             .ToListAsync();

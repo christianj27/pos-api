@@ -17,7 +17,8 @@ public class DebtPaymentService(AppDbContext db) : IDebtPaymentService
         return await db.DebtPayments
             .Include(dp => dp.Customer)
             .Include(dp => dp.Creator)
-            .Where(dp => dp.CreatedAt >= start && dp.CreatedAt < end)
+            .Include(dp => dp.Transaction)
+            .Where(dp => dp.CreatedAt >= start && dp.CreatedAt < end && (dp.Transaction == null || dp.Transaction.Status != TransactionStatus.Cancelled))
             .OrderByDescending(dp => dp.CreatedAt)
             .Select(dp => new DebtPaymentResponse(
                 dp.Id, dp.CustomerId, dp.Customer.Name, dp.Amount,
