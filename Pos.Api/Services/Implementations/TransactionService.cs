@@ -222,6 +222,9 @@ public class TransactionService(AppDbContext db) : ITransactionService
         if (transaction is null) return (false, "Transaction not found.");
         if (transaction.Status == TransactionStatus.Cancelled) return (false, "Transaksi sudah dibatalkan.");
 
+        var stockMovements = await db.StockMovements
+            .Where(sm => sm.TransactionId == id).ToListAsync();
+
         if (role is not "owner")
             return (false, "Hanya owner yang dapat membatalkan transaksi.");
 
@@ -229,6 +232,13 @@ public class TransactionService(AppDbContext db) : ITransactionService
         try
         {
             transaction.Status = TransactionStatus.Cancelled;
+
+            // Update stock movements to mark as reversed
+            foreach (var sm in stockMovements)
+            {
+                sm.IsReversed = true;
+                db.StockMovements.Update(sm);
+            }
 
             // Reverse dispatch movements ? receive back to source
             foreach (var item in transaction.Items)
@@ -245,6 +255,7 @@ public class TransactionService(AppDbContext db) : ITransactionService
                     Quantity = item.Quantity,
                     ToLocationId = transaction.LocationId,
                     TransactionId = transaction.Id,
+                    IsReversal = true,
                     CreatedBy = userId
                 });
             }
@@ -272,6 +283,7 @@ public class TransactionService(AppDbContext db) : ITransactionService
                         Quantity = Math.Abs(loan.Quantity),
                         FromLocationId = transaction.LocationId,
                         TransactionId = transaction.Id,
+                        IsReversal = true,
                         CreatedBy = userId
                     });
                 }
