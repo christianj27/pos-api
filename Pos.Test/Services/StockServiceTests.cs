@@ -17,6 +17,7 @@ public class StockServiceTests
     private static readonly Guid Location2Id = Guid.NewGuid();
     private static readonly Guid RefillableProductId = Guid.NewGuid();
     private static readonly Guid SimpleProductId = Guid.NewGuid();
+    private static readonly Guid CustomerId = Guid.NewGuid();
 
     public StockServiceTests()
     {
@@ -51,6 +52,11 @@ public class StockServiceTests
                 Type = ProductType.Air, Unit = "karton", BasePrice = 25000, IsActive = true
             }
         );
+
+        _db.Customers.Add(new Customer
+        {
+            Id = CustomerId, Name = "Test Customer", IsActive = true
+        });
 
         // Seed movements: 10 filled in to Gudang, 3 filled out from Gudang, 5 empty in to Gudang
         _db.StockMovements.AddRange(
@@ -326,5 +332,69 @@ public class StockServiceTests
 
         Assert.False(success);
         Assert.NotNull(error);
+    }
+
+    // ── ReverseMovement with ContainerLoan ──────────────────────────────────
+
+    [Fact]
+    public async Task ReverseMovement_WithContainerLoan_AlsoReversesLoan()
+    {
+        // Seed a ContainerLoan + paired StockMovement (mimicking CreateBulkAsync)
+        var loanId = Guid.NewGuid();
+        var batchId = Guid.NewGuid();
+        var movementId = Guid.NewGuid();
+
+        _db.ContainerLoans.Add(new ContainerLoan
+        {
+            Id = loanId,
+            CustomerId = CustomerId,
+            ProductId = RefillableProductId,
+            Quantity = 5,
+            Note = "Pinjam 5 galon",
+            CreatedBy = CreatorId
+        });
+
+        _db.StockMovements.Add(new StockMovement
+        {
+            Id = movementId,
+            ProductId = RefillableProductId,
+            MovementType = MovementType.Adjustment,
+            ContainerStatus = ContainerStatus.Filled,
+            Quantity = 5,
+            FromLocationId = LocationId,
+            ToLocationId = null,
+            Note = "Kontainer manual",
+            CreatedBy = CreatorId,
+            BatchId = batchId,
+            ContainerLoanId = loanId
+        });
+
+        _db.SaveChanges();
+
+        // Act
+        var (movements, error) = await _sut.ReverseMovementAsync(movementId, CreatorId);
+
+        // Assert
+        Assert.Null(error);
+        Assert.NotNull(movements);
+
+        // ContainerLoan should be marked as reversed
+        var loan = await _db.ContainerLoans.FindAsync(loanId);
+        Assert.NotNull(loan);
+        Assert.True(loan.IsReversed);
+
+        // Original movement should be marked reversed
+        var original = await _db.StockMovements.FindAsync(movementId);
+        Assert.NotNull(original);
+        Assert.True(original.IsReversed);
+
+        // Compensating movement should exist with IsReversal = true
+        var reversal = _db.StockMovements.FirstOrDefault(m => m.IsReversal);
+        Assert.NotNull(reversal);
+        Assert.Equal(5, reversal.Quantity);
+        Assert.Equal(ContainerStatus.Filled, reversal.ContainerStatus);
+        // Direction swapped: original From=LocationId, reversal To=LocationId
+        Assert.Equal(LocationId, reversal.ToLocationId);
+        Assert.Null(reversal.FromLocationId);
     }
 }

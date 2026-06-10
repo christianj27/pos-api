@@ -158,6 +158,7 @@ StockMovements
   is_reversed     BOOLEAN          -- true when this movement has been cancelled by a reversal; excluded from purchase cost aggregation
   is_reversal     BOOLEAN          -- true when this movement is a compensating correction entry created by reversal
   transaction_id  UUID  FK → Transactions  -- nullable; set for dispatch/return movements linked to a transaction
+  container_loan_id UUID  FK → ContainerLoans  -- nullable; set when this movement was created by a container loan operation
   created_by      UUID  FK → Users
   created_at      TIMESTAMPTZ
 
@@ -207,6 +208,8 @@ ContainerLoans                      -- containers lent to customers; negative qu
   customer_id     UUID  FK → Customers
   product_id      UUID  FK → Products      -- refillable products only
   quantity        INT                       -- positive = lent to customer; negative = returned
+  note            TEXT                      -- optional note supplied at creation; max 255
+  is_reversed     BOOLEAN                  -- true when this loan has been cancelled via stock movement reversal; excluded from container loan list
   created_by      UUID  FK → Users
   created_at      TIMESTAMPTZ
 
@@ -306,7 +309,7 @@ POST   /api/stock/vendor-exchange/bulk -- exchange containers with vendor for mu
                                    -- body: { location_id, notes?, items: [{ product_id, empty_quantity, filled_quantity, purchase_cost }] }
                                    -- server creates two StockMovements records per item atomically (same as vendor-exchange but batched)
 POST   /api/stock/production       -- in-house refill (owner and kasir): atomically empty -= qty, filled += qty; product must be refillable + selfproduced
-POST   /api/stock/movements/{id}/reverse -- cancel a movement batch (owner only); reversal is atomic and batch_id-aware; sets is_reversed=true on originals, creates compensating movements with is_reversal=true
+POST   /api/stock/movements/{id}/reverse -- cancel a movement batch (owner only); reversal is atomic and batch_id-aware; sets is_reversed=true on originals, creates compensating movements with is_reversal=true; also marks linked ContainerLoan records as is_reversed=true
 POST   /api/stock/adjustment       -- owner only; create adjustment movement (type='adjustment') to reconcile physical vs system stock; positive qty = add, negative = remove; note required
 POST   /api/stock/adjustment/bulk  -- owner only; bulk variant of above; body: { location_id, note, items: [{ product_id, adjustment_quantity, container_status? }] }; all items share one BatchId
 

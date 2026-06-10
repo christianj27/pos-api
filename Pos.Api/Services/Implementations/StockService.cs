@@ -96,7 +96,7 @@ public class StockService(AppDbContext db) : IStockService
                 m.ToLocationId, m.ToLocation?.Name,
                 showCost ? m.PurchaseCost : null,
                 m.Note, m.Creator.Name, m.CreatedAt, customerName,
-                m.BatchId, m.IsReversed, m.IsReversal);
+                m.BatchId, m.IsReversed, m.IsReversal, m.ContainerLoanId);
         });
     }
 
@@ -460,6 +460,26 @@ public class StockService(AppDbContext db) : IStockService
             await db.SaveChangesAsync();
             await tx.CommitAsync();
 
+            // Also reverse any ContainerLoan records linked to the original batch
+            var loanIds = batch
+                .Select(m => m.ContainerLoanId)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
+                .Distinct()
+                .ToList();
+
+            if (loanIds.Count != 0)
+            {
+                var loans = await db.ContainerLoans
+                    .Where(cl => loanIds.Contains(cl.Id) && !cl.IsReversed)
+                    .ToListAsync();
+
+                foreach (var loan in loans)
+                    loan.IsReversed = true;
+
+                await db.SaveChangesAsync();
+            }
+
             // Build responses for created reversal movements
             var creator = await db.Users.FindAsync(requestedBy);
             var responses = created.Select(r =>
@@ -470,7 +490,7 @@ public class StockService(AppDbContext db) : IStockService
                     r.MovementType.ToString().ToLower(), r.ContainerStatus.ToString().ToLower(),
                     r.Quantity, r.FromLocationId, null, r.ToLocationId, null,
                     null, r.Note, creator?.Name ?? string.Empty, r.CreatedAt,
-                    null, r.BatchId, r.IsReversed, r.IsReversal);
+                    null, r.BatchId, r.IsReversed, r.IsReversal, null);
             });
 
             return (responses, null);

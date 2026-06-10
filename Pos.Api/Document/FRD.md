@@ -561,6 +561,7 @@ Owner can cancel any stock movement (except `dispatch`) from the **Riwayat** tab
 1. Load all `StockMovement` records sharing the same `batch_id` as the target movement.
 2. For each original: create compensating movement with `from_location_id` <-> `to_location_id` swapped; set `is_reversal = true` on new; set `is_reversed = true` on original.
 3. All changes committed in a single transaction.
+4. If any movements in the batch have a `container_loan_id`, the linked `ContainerLoan` records are marked `is_reversed = true` and are excluded from future container loan queries (same pattern as stock movement reversal).
 
 **UI feedback:**
 - Reversed rows: strikethrough product name, reduced opacity, orange **"Dibatalkan"** badge.
@@ -950,7 +951,7 @@ UI always shows quantity as a positive number; sign is applied by the service.
 
 **Submit:** Calls `POST /api/container-loans/bulk`. On success: form collapses, Kontainer tab data reloads.
 
-**Stock movement side-effect:** For each item, one `StockMovement` of type `Adjustment` is created in the same DB transaction. All movements share a `BatchId`. Direction: lending to customer (`qty > 0`) → `FromLocationId = locationId` (stock leaves); receiving from customer (`qty < 0`) → `ToLocationId = locationId` (stock arrives).
+**Stock movement side-effect:** For each item, one `StockMovement` of type `Adjustment` is created in the same DB transaction. All movements share a `BatchId` and each movement references its parent `ContainerLoan` via `container_loan_id` for reversal integrity. Direction: lending to customer (`qty > 0`) → `FromLocationId = locationId` (stock leaves); receiving from customer (`qty < 0`) → `ToLocationId = locationId` (stock arrives).
 
 **Endpoint:** `POST /api/container-loans/bulk` — owner only.
 

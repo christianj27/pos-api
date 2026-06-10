@@ -542,6 +542,7 @@ Returns aggregated (net) container balances per product, not a raw event log.
 | `batch_id` | string (UUID) \| null | Groups all movements created in a single API call; used for atomic reversal |
 | `is_reversed` | boolean | `true` when this movement has been cancelled by a reversal; excluded from purchase cost aggregation |
 | `is_reversal` | boolean | `true` when this movement is a compensating correction entry created by a reversal |
+| `container_loan_id` | string (UUID) \| null | FK to ContainerLoan; set when this movement was created by a container loan operation (`POST /api/container-loans/bulk`) |
 
 > ⚠️ **Known gap #6 (resolved)**: Frontend `StockMovement.note` now matches backend `note` field.
 
@@ -697,6 +698,7 @@ _(Cancel a movement batch atomically; reverses all movements sharing the same `b
 - `movement_type = dispatch` cannot be reversed via this endpoint (use transaction cancellation)
 - `is_reversed = true` or `is_reversal = true` movements cannot be reversed again
 - All movements sharing the same `batch_id` are reversed together atomically
+- Linked `ContainerLoan` records (referenced by `container_loan_id` in the batch) are also reversed: marked `is_reversed = true` and excluded from `GET /api/container-loans` results
 
 **Response `200`** — array of newly created StockMovement objects (the compensating movements), each with `is_reversal = true`.
 
@@ -984,7 +986,7 @@ Records a partial or full payment against an existing transaction.
 |---|---|---|---|
 | `customer_id` | string (UUID) | ❌ | Filter by customer; omit for all loans |
 
-Returns the raw event log (not aggregated). Each record represents a single loan or return event.
+Returns the raw event log (not aggregated). Each record represents a single loan or return event. Loans with `is_reversed = true` are excluded from the response.
 
 **Response `200`** — array of ContainerLoan objects.
 
@@ -1000,6 +1002,7 @@ Returns the raw event log (not aggregated). Each record represents a single loan
 | `product_unit` | string | — |
 | `quantity` | number | Positive = lent to customer; negative = returned by customer |
 | `note` | string \| null | Optional note supplied at creation |
+| `is_reversed` | boolean | `true` when this loan record has been reversed via stock movement reversal (`POST /api/stock/movements/{id}/reverse`) |
 | `created_by_name` | string | — |
 | `created_at` | string (ISO 8601) | — |
 
@@ -1024,7 +1027,7 @@ Returns the raw event log (not aggregated). Each record represents a single loan
 
 ### POST /api/container-loans/bulk
 **Auth**: Owner only  
-_(Record multiple container loans or returns for one customer without a transaction)_
+_(Record multiple container loans or returns for one customer without a transaction. For each item, a `StockMovement` (type `adjustment`) is also created and linked back to the loan via `container_loan_id`.)_
 
 **Request Body**
 | Field | Type | Required | Notes |

@@ -15,6 +15,7 @@ public class ContainerLoanService(AppDbContext db) : IContainerLoanService
             .Include(cl => cl.Customer)
             .Include(cl => cl.Product)
             .Include(cl => cl.Creator)
+            .Where(cl => !cl.IsReversed)
             .AsQueryable();
 
         if (customerId.HasValue)
@@ -95,8 +96,10 @@ public class ContainerLoanService(AppDbContext db) : IContainerLoanService
         foreach (var item in request.Items)
         {
             var prod = products[item.ProductId];
+            var loanId = Guid.NewGuid();
             var loan = new ContainerLoan
             {
+                Id = loanId,
                 CustomerId = request.CustomerId,
                 ProductId = item.ProductId,
                 Quantity = item.Quantity,
@@ -118,7 +121,8 @@ public class ContainerLoanService(AppDbContext db) : IContainerLoanService
                 ToLocationId = isLending ? null : request.LocationId,
                 Note = item.Note ?? request.Note ?? "Kontainer manual",
                 CreatedBy = createdBy,
-                BatchId = batchId
+                BatchId = batchId,
+                ContainerLoanId = loanId
             });
         }
 

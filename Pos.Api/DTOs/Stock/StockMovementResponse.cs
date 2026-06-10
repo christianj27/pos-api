@@ -18,5 +18,6 @@ public record StockMovementResponse(
     string? CustomerName,
     Guid? BatchId,
     bool IsReversed,
-    bool IsReversal
+    bool IsReversal,
+    Guid? ContainerLoanId
 );

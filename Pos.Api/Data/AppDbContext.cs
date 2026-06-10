@@ -124,6 +124,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
              .WithMany(t => t.StockMovements)
              .HasForeignKey(s => s.TransactionId)
              .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(s => s.ContainerLoan)
+             .WithMany()
+             .HasForeignKey(s => s.ContainerLoanId)
+             .OnDelete(DeleteBehavior.SetNull);
         });
 
         // -- Transaction -------------------------------------------------------
@@ -212,6 +216,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         {
             e.HasKey(cl => cl.Id);
             e.Property(cl => cl.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(cl => cl.IsReversed).HasDefaultValue(false);
             e.Property(cl => cl.CreatedAt).HasDefaultValueSql("now()");
             e.HasOne(cl => cl.Transaction)
              .WithMany(t => t.ContainerLoans)

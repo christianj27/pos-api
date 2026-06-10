@@ -8,6 +8,7 @@ public class ContainerLoan
     public Guid ProductId { get; set; }
     public int Quantity { get; set; }
     public string? Note { get; set; }
+    public bool IsReversed { get; set; } = false;
     public Guid CreatedBy { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
