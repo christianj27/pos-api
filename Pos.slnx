@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".github/workflows/deploy.yml" />
+  </Folder>
   <Project Path="Pos.Api/Pos.Api.csproj" />
   <Project Path="Pos.Test/Pos.Test.csproj" Id="4572a4b6-ee97-49ac-914c-f7585351aa64" />
 </Solution>
