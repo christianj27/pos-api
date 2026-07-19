@@ -23,7 +23,7 @@ jobs:
       - name: Publish
         run: dotnet publish Pos.Api/Pos.Api.csproj --configuration Release --no-build -o ./publish
       - name: Deploy to MonsterASP.Net via FTP
-        uses: SamKirkland/FTP-Deploy-Action@v4.6.0
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
         with: 
           server: ${{ secrets.FTP_HOST }}
           username: ${{ secrets.FTP_USERNAME }}
