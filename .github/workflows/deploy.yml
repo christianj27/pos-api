@@ -1,0 +1,32 @@
+name: Deploy pos-api to MonsterASP.Net
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+      - name: Restore
+        run: dotnet restore Pos.slnx
+      - name: Build
+        run: dotnet build Pos.slnx --configuration Release --no-restore
+      - name: Run tests
+        run: dotnet test Pos.Test/Pos.Test.csproj --configuration Release --no-build
+      - name: Publish
+        run: dotnet publish Pos.Api/Pos.Api.csproj --configuration Release --no-build -o ./publish
+      - name: Deploy to MonsterASP.Net via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.6.0
+        with: 
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./publish/
+          server-dir: /wwwroot
