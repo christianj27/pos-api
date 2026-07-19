@@ -243,13 +243,13 @@ public class TransactionServiceTests
     [Fact]
     public async Task Cancel_CompletedTransaction_UpdatesStatusAndReversesStock()
     {
-        var (created, _) = await _sut.CreateAsync(MakeCounterRequest(LocationId, paid: 25000m), KasirId, "kasir");
+        var (created, _) = await _sut.CreateAsync(MakeCounterRequest(LocationId, paid: 25000m), OwnerId, "owner");
         var txId = created!.Id;
 
         var movementsBefore = _db.StockMovements.Count(m => m.TransactionId == txId);
 
         var (success, err) = await _sut.UpdateStatusAsync(
-            txId, new UpdateTransactionStatusRequest("cancelled"), KasirId, "kasir");
+            txId, new UpdateTransactionStatusRequest("cancelled"), OwnerId, "owner");
 
         Assert.True(success);
         Assert.Null(err);
