@@ -1,5 +1,3 @@
-using System.Text;
-using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -7,6 +5,10 @@ using Pos.Api.Data;
 using Pos.Api.Middleware;
 using Pos.Api.Services.Implementations;
 using Pos.Api.Services.Interfaces;
+using Pos.Api.Transformer;
+using Scalar.AspNetCore;
+using System.Text;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -88,7 +90,9 @@ builder.Services.AddScoped<ICashFlowService, CashFlowService>();
 
 // -- Controllers & OpenAPI -----------------------------------------------------
 builder.Services.AddControllers();
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options =>
+    options.AddDocumentTransformer<BearerSecuritySchemeTransformer>()
+);
 
 var app = builder.Build();
 
@@ -98,6 +102,9 @@ app.UseMiddleware<SecurityHeadersMiddleware>();
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    app.MapScalarApiReference(options => options
+        .AddPreferredSecuritySchemes("Bearer")
+        .EnablePersistentAuthentication());  // saves token in browser localStorage
 }
 
 app.UseCors("FrontendPolicy");
