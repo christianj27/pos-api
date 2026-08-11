@@ -30,6 +30,13 @@ RUN dotnet test Pos.Test/Pos.Test.csproj -c Release --no-build --logger "console
 
 # ---------- STAGE 3: RUNTIME (slim) ----------
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+
+# Install curl — the aspnet image does NOT ship curl or wget!
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+USER app
 WORKDIR /app
 
 # Non-root user (created by the aspnet base image)
