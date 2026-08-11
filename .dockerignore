@@ -1,0 +1,19 @@
+# ============================================================
+# .dockerignore — pos-api
+# PLACE: POS/Project/Backend/Pos/.dockerignore
+# ⚠️ Build context root = Backend/Pos/ (NOT Pos.Api/)
+# Speeds up builds ~10x: keeps bin/obj/.git OUT of the Docker
+# build context that gets uploaded to the daemon.
+# ============================================================
+
+**/bin
+**/obj
+.git
+.gitignore
+.vs
+*.user
+*.suo
+**/appsettings*.Development.json
+**/*.log
+Dockerfile
+.dockerignore
