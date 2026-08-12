@@ -1,0 +1,66 @@
+name: Build, Test & Publish to GHCR
+ 
+on:
+  push:
+    branches: [master]
+    paths:                      # ← only run when CODE changes (see below)
+      - 'Pos.Api/**'
+      - 'Pos.Test/**'
+      - 'Pos.slnx'
+      - 'Pos.Api/Dockerfile'
+      - '.dockerignore'
+  workflow_dispatch:          # manual trigger from GitHub UI (Actions tab)
+
+jobs:
+  build-test-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write         # ← REQUIRED: lets GITHUB_TOKEN push to GHCR
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+ 
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+ 
+      - name: Restore
+        run: dotnet restore Pos.slnx
+ 
+      - name: Build
+        run: dotnet build Pos.slnx --configuration Release --no-restore
+ 
+      - name: Run tests
+        run: dotnet test Pos.Test/Pos.Test.csproj --configuration Release --no-build
+ 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+ 
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+ 
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/christianj27/pos-api
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha
+            type=raw,value=1.0.${{ github.run_number }}
+ 
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Pos.Api/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
