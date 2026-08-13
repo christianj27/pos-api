@@ -9,6 +9,7 @@ on:
       - 'Pos.slnx'
       - 'Pos.Api/Dockerfile'
       - '.dockerignore'
+      - '.github/workflows/**'
   workflow_dispatch:          # manual trigger from GitHub UI (Actions tab)
 
 jobs:
@@ -76,11 +77,11 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
  
       - name: Deploy to Azure Container Apps
-        uses: azure/container-apps-deploy@v1
+        uses: azure/container-apps-deploy-action@v1
         with:
           appName: pos-api
           resourceGroup: pos-rg
           imageToDeploy: ghcr.io/christianj27/pos-api:1.0.${{ github.run_number }}
-          registryServer: ghcr.io
+          registryUrl: ghcr.io
           registryUsername: ${{ github.actor }}
           registryPassword: ${{ secrets.GITHUB_TOKEN }}
