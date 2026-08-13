@@ -64,3 +64,23 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    needs: build-test-push        # only deploy if build+push succeeded
+    runs-on: ubuntu-latest
+    environment: production       # optional: adds approval gate
+    steps:
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+ 
+      - name: Deploy to Azure Container Apps
+        uses: azure/container-apps-deploy@v1
+        with:
+          appName: pos-api
+          resourceGroup: pos-rg
+          imageToDeploy: ghcr.io/christianj27/pos-api:1.0.${{ github.run_number }}
+          registryServer: ghcr.io
+          registryUsername: ${{ github.actor }}
+          registryPassword: ${{ secrets.GITHUB_TOKEN }}
