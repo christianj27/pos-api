@@ -1,4 +1,4 @@
-﻿# POS App — Functional Requirements Document (FRD)
+# POS App — Functional Requirements Document (FRD)
 > MSMe Water & Gas | Version 2.4 | May 7, 2026
 
 ---
@@ -7,6 +7,9 @@
 
 | Version | Date | Author | Changes |
 |---|---|---|---------|
+| 5.5 | September 14, 2026 | — | FR-CST-009 — Pencarian Pelanggan: halaman Pelanggan (`CustomersPage`) kini memiliki input pencarian di atas daftar pelanggan untuk memfilter berdasarkan **nama** (case-insensitive) dan **nomor telepon** (substring) — pola yang sama dengan pemilih pelanggan pada FR-TXN-001 Langkah 1. Filter diterapkan **client-side** terhadap daftar yang sudah dimuat (sudah ter-scope role mengikuti FR-CST-008); `GET /api/customers` tidak berubah. Placeholder: `"Cari nama atau nomor HP..."`. Pencarian berlaku untuk pelanggan aktif maupun tidak aktif; input hanya tampil saat daftar tidak kosong. Empty state baru saat tidak ada hasil: `"Tidak ada pelanggan yang ditemukan."` Frontend: `CustomersPage.tsx` menambah state `search` + `filteredCustomers` (`useMemo`) dan merender `<Input>` di dalam `.searchWrap`; `CustomersPage.module.scss` menambah kelas `.searchWrap`. Tanpa perubahan backend/API. |
+| 5.4 | June 4, 2026 | — | FR-DSH-013 — Metode Pembayaran Breakdown: "Pendapatan" stat card on Dashboard is now clickable. Clicking opens a modal showing today's revenue breakdown by payment method (Tunai, Transfer, QRIS) displayed as three summary cards. Each card shows payment method name + icon, total amount (formatted currency), and transaction count. Today's data only (date-filter-independent). Role-scoped: Owner sees store-wide breakdown; Kasir/Kurir see only their own transactions' breakdown. All roles can view this modal. Backend: `PaymentMethodBreakdownItem` record added to `Pos.Api/DTOs/Dashboard/`; `DashboardResponse` extended with `payment_method_breakdown` field; `DashboardService.GetDashboardAsync` computes aggregated revenue per payment method (cash, transfer, qris) with role-scoping identical to other stats; new query groups transactions by `PaymentMethod` string and sums `PaidAmount` per method. Frontend: new `PaymentMethodBreakdownItem` interface added to `types/index.ts`; `DashboardStats` extended with `paymentMethodBreakdown?` field; new `PaymentMethodModal` component (props: `paymentBreakdown`, `isOpen`, `onClose`) rendering three summary cards in responsive grid with icon + amount + count per method; `DashboardPage` adds state `paymentModalOpen`, wraps Pendapatan StatCard in clickable div (cursor: pointer; opens modal on click), renders `<PaymentMethodModal>` at end of JSX. Mock: `dashboardService.ts` adds `computePaymentMethodBreakdown()` helper to group transactions by `paymentMethod` and aggregate; both owner and non-owner return statements include computed `paymentMethodBreakdown`. New SCSS module `PaymentMethodModal.module.scss` with responsive grid layout and colored method icons (green = cash, blue = transfer, orange = qris). |
+| 5.3 | June 2, 2026 | — | FR-STK-007 updated — Defect write-off logic corrected for refillable products. Refillable defect restricted to `filled` container status only; server atomically creates two `StockMovement` records with shared `BatchId` (filled-out `FromLocationId` + empty-in `ToLocationId = same location`). Defect on empty containers blocked at UI and backend. Simple products unchanged. Backend: `CreateMovementAsync` returns `400 "Untuk produk refillable, defek hanya berlaku untuk kontainer terisi."` for empty-container defect on refillable. Frontend: Status Kontainer dropdown shows only "Terisi" for refillable; hidden for simple; product change resets container_status; label updated to required; subtitle added. FR-STK-009 extended to cover Defek tab. Mock: refillable filled defect now does `quantityFilled -= qty` AND `quantityEmpty += qty`. |
 | 5.2 | June 2, 2026 | — | FR-DSH-012 updated — "Pergerakan Stok" reworked from delta model to **sold/received model**. `daily_stock_summary` array now carries `total_sold` and `total_received` per product instead of `net_filled_delta`, `net_empty_delta`, `net_simple_delta`, and the `breakdown` array. **Sold** = `dispatch` movements: Refillable → filled-container qty only; Simple → all dispatch qty. **Received** = inbound movements (`to_location_id != null && from_location_id == null`): Refillable → filled-container qty only; Simple → all inbound qty. Products with zero activity in both dimensions are excluded. The detail modal (opened by clicking a product row) now shows a **per-staff sold/received table** (`computeStaffBreakdown`) instead of the old per-movement list; `is_owner` check and purchase-cost total row removed. Backend: `DailyMovementBreakdownItem` DTO record removed; `DailyStockProductSummary` record fields changed to `TotalReceived`/`TotalSold`; `DashboardService.GetDashboardAsync` computation rewritten. Frontend: `DailyMovementBreakdownItem` interface removed from `types/index.ts`; `DailyStockProductSummary` updated; `DeltaChip` component removed; `DailyStockSummaryRow` shows Terjual/Diterima chips; `StockMovementDetailModal` rebuilt with `computeStaffBreakdown` helper; new `.staffSummaryHeader`/`.staffSummaryRow`/`.staffSummaryName`/`.staffSummaryCell`/`.staffSummaryZero` SCSS classes added; `dashboardService.ts` mock rewritten accordingly. |
 | 5.1 | May 29, 2026 | — | FR-STK-009, FR-STK-015, FR-TXN-021 upgraded from soft warning to **hard block** — negative stock is now strictly forbidden. When any item would result in negative stock the operation is blocked entirely: the warning dialog now shows only a "Tutup" dismiss button and the submit action is never invoked. Frontend: `ConfirmDialog` `onConfirm` prop made optional; all three negative-stock dialogs (`txConfirmOpen` in `TransactionsPage`, `transferConfirmOpen` + `bulkLoanConfirmOpen` in `StockPage`) have their `onConfirm` removed and their `cancelText` changed to "Tutup". FRD: FR-STK-009 renamed "Negative stock hard block"; FR-STK-015 and FR-TXN-021 updated accordingly. |
 | 5.0 | May 29, 2026 | — | FR-TXN-009 updated — Transaction cancellation is now restricted to **Owner only**. Kurir and Kasir can no longer cancel transactions, even their own. Backend: `TransactionService.UpdateStatusAsync` replaces the `kurir`/`kasir` ownership check with a blanket owner-only guard — returns `400 "Hanya owner yang dapat membatalkan transaksi."` for non-owner callers. Frontend: `TransactionsPage` cancel button (`Batalkan`) is now wrapped with an `isOwner` guard and is no longer rendered for Kurir/Kasir. ARCHITECTURE.md updated: `PUT /api/transactions/{id}/status` authorization changed from "owner can cancel any; kurir/kasir can cancel own only" to "owner only". |
@@ -413,6 +416,15 @@ Owner dapat menandai pelanggan sebagai **konfidensial** melalui checkbox "Konfid
 - Tetap dapat diakses melalui endpoint owner-only (`/debt-history`, `/pricing`, `/container-loans`, dll.) tanpa perubahan.
 - Kasir tidak dapat mengubah status konfidensial meskipun mengakses endpoint PUT — nilai `is_confidential` diabaikan untuk non-owner.
 
+**FR-CST-009 — Pencarian Pelanggan**
+Halaman Pelanggan (`CustomersPage`) menyediakan input pencarian di atas daftar pelanggan untuk memfilter berdasarkan **nama** (case-insensitive) dan **nomor telepon** (substring) — perilaku yang sama seperti pemilih pelanggan pada FR-TXN-001 Langkah 1.
+- Filter diterapkan **client-side** terhadap daftar pelanggan yang sudah dimuat (sudah ter-scope role mengikuti FR-CST-008); endpoint `GET /api/customers` tidak berubah.
+- Placeholder input: `"Cari nama atau nomor HP..."`.
+- Pencarian berlaku untuk semua pelanggan yang ditampilkan (aktif maupun tidak aktif).
+- Input pencarian hanya dirender ketika daftar pelanggan tidak kosong.
+- Jika tidak ada pelanggan yang cocok, tampilkan empty state `"Tidak ada pelanggan yang ditemukan."`
+- Tanpa perubahan backend/API.
+
 ### 8.3 Validation Rules
 
 | ID | Field | Rule | Error Message |
@@ -424,10 +436,11 @@ Owner dapat menandai pelanggan sebagai **konfidensial** melalui checkbox "Konfid
 
 ### 8.4 UI Behavior
 
-- **List page:** Table — Nama, Telepon, Alamat, Status, Aksi (Edit, Harga Khusus, Nonaktifkan)
+- **List page:** Search input (`"Cari nama atau nomor HP..."`) di atas daftar — memfilter berdasarkan nama (case-insensitive) atau nomor telepon (lihat FR-CST-009); Table — Nama, Telepon, Alamat, Status, Aksi (Edit, Harga Khusus, Nonaktifkan)
 - **Pricing page:** Sub-page — satu baris per produk aktif dengan input harga khusus opsional
 - **Deactivate:** Dialog — `"Nonaktifkan [nama]? Mereka tidak akan muncul di transaksi baru."`
 - **Empty state (list):** `"Belum ada pelanggan. Tambahkan pelanggan pertama Anda."`
+- **Empty state (search):** `"Tidak ada pelanggan yang ditemukan."`
 - **Empty state (pricing):** `"Tidak ada produk aktif untuk dikonfigurasi harganya."`
 - **Notifikasi Toast:** Berhasil buat → `"Pelanggan berhasil dibuat."` · Berhasil ubah → `"Pelanggan berhasil diperbarui."` · Nonaktifkan → `"Pelanggan berhasil dinonaktifkan."` · Simpan harga khusus → `"Harga khusus berhasil disimpan."` · Gagal → `"Terjadi kesalahan. Silakan coba lagi."`
 
@@ -493,16 +506,20 @@ When a kurir returns:
 - **Multi-product batch:** Same bulk submission as FR-STK-005 — multiple product rows with the same shared from/to location. The frontend submits via `POST /api/stock/transfer/bulk`.
 
 **FR-STK-007 — Defect write-off**
-Owner records a defective item:
-- `movement_type = 'defect'`, `from_location = warehouse (or vehicle)`, `to_location = null`
-- `note` is mandatory — must describe the defect
-- For `refillable`: specify `container_status` of the defective item
+Owner records a defective item. `note` is mandatory — must describe the defect reason.
+- **Refillable products:** only `container_status = 'filled'` is accepted. A defective filled container is converted to empty — it is **not** removed from the system. The server atomically creates two `StockMovement` records with a shared `batch_id`:
+  1. `from_location = location`, `container_status = 'filled'`, qty N (filled container leaves stock)
+  2. `to_location = location`, `container_status = 'empty'`, qty N (converted to empty stock arrives)
+  Net effect: `quantity_filled -= N`, `quantity_empty += N` at the same location. Defects on **empty** containers of refillable products are not recorded here — empty container loss is handled through the Vendor Exchange flow.
+- **Simple products:** `movement_type = 'defect'`, `from_location = warehouse (or vehicle)`, `to_location = null`. Stock is reduced directly (`quantity_total -= N`).
+
+Frontend: the Status Kontainer dropdown in the Defek tab shows only "Terisi" when a refillable product is selected; the field is hidden entirely for simple products. Selecting a new product resets the container status. A negative-stock hard block applies (see FR-STK-009): if `quantity_filled` (refillable) or `quantity_total` (simple) at the selected location would go below zero, the defect is blocked with a dismiss-only dialog.
 
 **FR-STK-008 — Stock movement history**
 Paginated list showing: date/time, product, movement type, container status, quantity, from/to location, note, recorded by.
 
 **FR-STK-009 — Negative stock hard block**
-On stock-out/dispatch/transfer-out: if any item's requested quantity would result in stock going below zero, the operation is **blocked**. A dialog is shown listing the affected products with their available and requested quantities. The dialog provides only a dismiss button — the user must revise the quantities before the operation can proceed. Negative stock is not permitted under any circumstance.
+On stock-out operations (dispatch, transfer-out, defect): if the requested quantity would result in stock going below zero, the operation is **blocked**. A dialog is shown listing the affected products with their available and requested quantities. The dialog provides only a dismiss button — the user must revise the quantities before the operation can proceed. Negative stock is not permitted under any circumstance. Operations covered: Transfer tab (FR-STK-015), vendor exchange empty-out, production empty-out, defect/FR-STK-007 (checks `quantity_filled` for refillable, `quantity_total` for simple), transaction stock deduction (FR-TXN-021), container loans outbound (FR-CON-006).
 
 **FR-STK-010 — Vendor exchange**
 Owner **or Kurir** records a vendor exchange (taking empties to vendor, receiving filled stock):
