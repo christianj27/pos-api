@@ -7,6 +7,7 @@
 
 | Version | Date | Author | Changes |
 |---|---|---|---------|
+| 5.6 | September 15, 2026 | — | FR-CON-007 — Pencarian Pelanggan pada Tab Kontainer: tab **Kontainer** (`StockPage`, owner only) kini memiliki input pencarian di atas daftar saldo kontainer untuk memfilter pelanggan berdasarkan **nama** (case-insensitive, substring) — pola interaksi yang sama dengan FR-CST-009, namun **hanya nama** tanpa nomor telepon karena `ContainerLoanResponse` tidak memuat data telepon dan FR ini tidak menambah field API. Filter diterapkan **client-side** terhadap entri net yang sudah diagregasi dan berlaku untuk **kedua** seksi (net > 0 dan net < 0); `GET /api/container-loans` tidak berubah. Placeholder: `"Cari nama pelanggan..."`; input hanya dirender bila tab memiliki minimal satu entri net ≠ 0. Empty state baru saat tidak ada hasil: `"Tidak ada pelanggan yang ditemukan."` (state lama `"Tidak ada transaksi kontainer aktif."` tetap untuk tab tanpa data). Frontend: `StockPage.tsx` menambah state `containerSearch`, perhitungan `searchQuery` + `filteredEntries` di dalam blok agregasi net tab Kontainer (dipakai untuk menurunkan `positiveEntries`/`negativeEntries`), dan `<Input>` di atas daftar di dalam `.searchWrap`; `StockPage.module.scss` menambah kelas `.searchWrap`. Tanpa perubahan backend/API. |
 | 5.5 | September 14, 2026 | — | FR-CST-009 — Pencarian Pelanggan: halaman Pelanggan (`CustomersPage`) kini memiliki input pencarian di atas daftar pelanggan untuk memfilter berdasarkan **nama** (case-insensitive) dan **nomor telepon** (substring) — pola yang sama dengan pemilih pelanggan pada FR-TXN-001 Langkah 1. Filter diterapkan **client-side** terhadap daftar yang sudah dimuat (sudah ter-scope role mengikuti FR-CST-008); `GET /api/customers` tidak berubah. Placeholder: `"Cari nama atau nomor HP..."`. Pencarian berlaku untuk pelanggan aktif maupun tidak aktif; input hanya tampil saat daftar tidak kosong. Empty state baru saat tidak ada hasil: `"Tidak ada pelanggan yang ditemukan."` Frontend: `CustomersPage.tsx` menambah state `search` + `filteredCustomers` (`useMemo`) dan merender `<Input>` di dalam `.searchWrap`; `CustomersPage.module.scss` menambah kelas `.searchWrap`. Tanpa perubahan backend/API. |
 | 5.4 | June 4, 2026 | — | FR-DSH-013 — Metode Pembayaran Breakdown: "Pendapatan" stat card on Dashboard is now clickable. Clicking opens a modal showing today's revenue breakdown by payment method (Tunai, Transfer, QRIS) displayed as three summary cards. Each card shows payment method name + icon, total amount (formatted currency), and transaction count. Today's data only (date-filter-independent). Role-scoped: Owner sees store-wide breakdown; Kasir/Kurir see only their own transactions' breakdown. All roles can view this modal. Backend: `PaymentMethodBreakdownItem` record added to `Pos.Api/DTOs/Dashboard/`; `DashboardResponse` extended with `payment_method_breakdown` field; `DashboardService.GetDashboardAsync` computes aggregated revenue per payment method (cash, transfer, qris) with role-scoping identical to other stats; new query groups transactions by `PaymentMethod` string and sums `PaidAmount` per method. Frontend: new `PaymentMethodBreakdownItem` interface added to `types/index.ts`; `DashboardStats` extended with `paymentMethodBreakdown?` field; new `PaymentMethodModal` component (props: `paymentBreakdown`, `isOpen`, `onClose`) rendering three summary cards in responsive grid with icon + amount + count per method; `DashboardPage` adds state `paymentModalOpen`, wraps Pendapatan StatCard in clickable div (cursor: pointer; opens modal on click), renders `<PaymentMethodModal>` at end of JSX. Mock: `dashboardService.ts` adds `computePaymentMethodBreakdown()` helper to group transactions by `paymentMethod` and aggregate; both owner and non-owner return statements include computed `paymentMethodBreakdown`. New SCSS module `PaymentMethodModal.module.scss` with responsive grid layout and colored method icons (green = cash, blue = transfer, orange = qris). |
 | 5.3 | June 2, 2026 | — | FR-STK-007 updated — Defect write-off logic corrected for refillable products. Refillable defect restricted to `filled` container status only; server atomically creates two `StockMovement` records with shared `BatchId` (filled-out `FromLocationId` + empty-in `ToLocationId = same location`). Defect on empty containers blocked at UI and backend. Simple products unchanged. Backend: `CreateMovementAsync` returns `400 "Untuk produk refillable, defek hanya berlaku untuk kontainer terisi."` for empty-container defect on refillable. Frontend: Status Kontainer dropdown shows only "Terisi" for refillable; hidden for simple; product change resets container_status; label updated to required; subtitle added. FR-STK-009 extended to cover Defek tab. Mock: refillable filled defect now does `quantityFilled -= qty` AND `quantityEmpty += qty`. |
@@ -924,6 +925,7 @@ Kurir antar 20 galon Aqua terisi, Pak Joko kembalikan 10 galon kosong.
 - As an Owner, I want to see which customers hold our unreturned containers (net > 0) so I can follow up.
 - As an Owner, I want to see which customers have returned more empties than filled deliveries (net < 0) so I know how many filled containers I owe them on the next visit.
 - As an Owner, I want to manually record a standalone container return when a customer brings empties back outside of a delivery transaction.
+- As an Owner, I want to search the container balance list by customer name so I can quickly find a specific customer's containers.
 
 ### 12.2 Functional Requirements
 
@@ -943,6 +945,8 @@ Computed: `SUM(ContainerLoans.quantity WHERE customer AND product)`. The result 
 Owner can view **all** customers with a non-zero net container balance via the **"Kontainer"** tab in the Stock page. The tab is split into two visual sections:
 - **Net > 0 (orange/amber):** Customer holds our unreturned containers — show "[CustomerName] masih memegang [N] kontainer kami" with a "Catat Pengembalian" inline form.
 - **Net < 0 (blue/info):** We hold customer's excess empties — show "[N] kontainer milik [CustomerName] ada di truk — kembalikan saat pengiriman berikutnya." No standalone action button; resolved via the next delivery transaction.
+
+The customer list can be filtered by name via the search input described in **FR-CON-007**.
 
 
 ---
@@ -972,6 +976,25 @@ UI always shows quantity as a positive number; sign is applied by the service.
 
 **Endpoint:** `POST /api/container-loans/bulk` — owner only.
 
+---
+
+**FR-CON-007 — Pencarian Pelanggan pada Tab Kontainer**
+
+The **Kontainer** tab in `StockPage` (owner only) provides a search input above the container balance list to filter customers by **name** (case-insensitive substring) — the same interaction pattern as FR-CST-009 on the Customers page.
+
+- Filter diterapkan **client-side** terhadap entri net yang sudah diagregasi dari `GET /api/container-loans`; endpoint tidak berubah dan tidak ada parameter query baru.
+- **Hanya nama pelanggan** yang dicocokkan. Nomor telepon **tidak** difilter karena `ContainerLoanResponse` tidak memuat field telepon dan FR ini tidak menambah field API — perbedaan yang disengaja dari FR-CST-009.
+- Berlaku untuk **kedua** seksi: **Net > 0** ("Pelanggan memegang kontainer kami") dan **Net < 0** ("Kontainer pelanggan ada di kami"). Filter dijalankan **setelah** agregasi net per pelanggan + produk, sehingga angka net yang ditampilkan tidak berubah.
+- Placeholder input: `"Cari nama pelanggan..."`.
+- Input pencarian hanya dirender ketika tab memiliki minimal satu entri dengan net ≠ 0 (yaitu ketika daftar tidak kosong).
+- Jika tidak ada pelanggan yang cocok, tampilkan empty state `"Tidak ada pelanggan yang ditemukan."` dan sembunyikan kedua seksi; judul seksi yang tidak memiliki hasil juga tidak dirender.
+- Menghapus teks pencarian mengembalikan seluruh daftar.
+- Teks pencarian tidak direset ketika data kontainer dimuat ulang (mis. setelah submit form Kontainer Manual) maupun saat berpindah tab.
+- Selector pelanggan pada form **+ Kontainer Manual** (FR-CON-006) **tidak** terpengaruh filter ini — tetap menampilkan seluruh pelanggan aktif.
+- Tanpa perubahan backend/API.
+
+---
+
 ### 12.3 Validation Rules
 
 | ID | Field | Rule | Error Message |
@@ -986,10 +1009,12 @@ UI always shows quantity as a positive number; sign is applied by the service.
 
 - **Transaction form Langkah 3 — "Kontainer Kosong Diterima dari Pelanggan (opsional)":** One input per refillable product in the cart. Label: "[ProductName]". Hint: "Bisa lebih dari jumlah yang dijual jika pelanggan memberikan kontainer ekstra". No maximum constraint.
 - **StockPage Kontainer tab (Owner only):**
+  - **Customer search:** input pencarian di atas daftar (`"Cari nama pelanggan..."`) memfilter grup pelanggan berdasarkan nama (lihat FR-CON-007); input hanya tampil bila tab memiliki minimal satu entri net ≠ 0.
   - **Positive-net rows (orange):** "[CustomerName] memegang [N] kontainer kami" — inline "Catat Pengembalian" form with qty input and confirm button.
   - **Negative-net rows (blue):** "[abs(N)] kontainer milik [CustomerName] ada di truk kami — kembalikan saat pengiriman berikutnya." No action button.
   - Rows are grouped by customer; each product is a separate row.
 - **Customer detail — loans section:** Outstanding net per product; "Catat Pengembalian Kontainer" button.
+- **Empty state (Kontainer tab — no search match):** `"Tidak ada pelanggan yang ditemukan."`
 - **Empty state (Kontainer tab):** `"Tidak ada transaksi kontainer aktif."`
 
 ---
