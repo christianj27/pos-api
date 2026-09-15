@@ -133,7 +133,7 @@ Customers
   name            VARCHAR(100)
   phone           VARCHAR(20)
   address         TEXT
-  is_active       BOOLEAN
+  is_active       BOOLEAN                  -- false = soft-deleted; excluded from GET /api/customers by default
   is_confidential BOOLEAN  DEFAULT false   -- when true, hidden from kasir/kurir in GET /api/customers
   initial_debt    DECIMAL(15,2)  DEFAULT 0   -- opening balance from paper records
   created_at      TIMESTAMPTZ
@@ -279,9 +279,10 @@ POST   /api/products
 PUT    /api/products/{id}
 DELETE /api/products/{id}
 
-GET    /api/customers
+GET    /api/customers              -- ?active_only=true (default); false includes soft-deleted customers
 POST   /api/customers
 PUT    /api/customers/{id}
+DELETE /api/customers/{id}         (soft delete: is_active = false; record retained for history)
 GET    /api/customers/{id}/pricing
 PUT    /api/customers/{id}/pricing
 GET    /api/customers/{id}/debt    -- outstanding debt summary

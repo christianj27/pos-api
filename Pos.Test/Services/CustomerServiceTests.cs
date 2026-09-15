@@ -71,7 +71,22 @@ public class CustomerServiceTests
     // ── GetAll ─────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetAll_NoFilter_ReturnsAllCustomers()
+    public async Task GetAll_Default_ExcludesInactiveCustomers()
+    {
+        _db.Customers.AddRange(
+            new Customer { Name = "Andi", IsActive = true },
+            new Customer { Name = "Bejo", IsActive = false }
+        );
+        _db.SaveChanges();
+
+        var all = (await _sut.GetAllAsync()).ToList();
+
+        Assert.Contains(all, c => c.Name == "Andi");
+        Assert.DoesNotContain(all, c => c.Name == "Bejo");
+    }
+
+    [Fact]
+    public async Task GetAll_ActiveOnlyFalse_IncludesInactiveCustomers()
     {
         _db.Customers.AddRange(
             new Customer { Name = "Andi", IsActive = true },
@@ -81,7 +96,8 @@ public class CustomerServiceTests
 
         var all = (await _sut.GetAllAsync(activeOnly: false)).ToList();
 
-        Assert.True(all.Count >= 2);
+        Assert.Contains(all, c => c.Name == "Andi");
+        Assert.Contains(all, c => c.Name == "Bejo");
     }
 
     [Fact]
@@ -97,6 +113,50 @@ public class CustomerServiceTests
 
         Assert.DoesNotContain(active, c => c.Name == "InactiveOne");
         Assert.Contains(active, c => c.Name == "ActiveOne");
+    }
+
+    // ── Delete (soft) ──────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Delete_ExistingCustomer_SetsIsActiveFalseAndRetainsRecord()
+    {
+        var (created, _) = await _sut.CreateAsync(new CreateCustomerRequest("Hapus Aku", null, null));
+
+        var (success, err) = await _sut.DeleteAsync(created!.Id);
+
+        Assert.True(success);
+        Assert.Null(err);
+
+        // Record is retained (soft delete), just flagged inactive.
+        var retained = _db.Customers.Where(c => c.Id == created.Id).ToList();
+        Assert.Single(retained);
+        Assert.False(retained[0].IsActive);
+
+        var reloaded = await _sut.GetByIdAsync(created.Id);
+        Assert.NotNull(reloaded);
+        Assert.False(reloaded!.IsActive);
+    }
+
+    [Fact]
+    public async Task Delete_NonExistentId_ReturnsError()
+    {
+        var (success, err) = await _sut.DeleteAsync(Guid.NewGuid());
+
+        Assert.False(success);
+        Assert.NotNull(err);
+    }
+
+    [Fact]
+    public async Task Delete_ExcludesCustomerFromDefaultListButKeepsHistory()
+    {
+        var (created, _) = await _sut.CreateAsync(new CreateCustomerRequest("Hilang", null, null));
+        await _sut.DeleteAsync(created!.Id);
+
+        var defaultList = (await _sut.GetAllAsync()).ToList();
+        var withDeleted = (await _sut.GetAllAsync(activeOnly: false)).ToList();
+
+        Assert.DoesNotContain(defaultList, c => c.Id == created.Id);
+        Assert.Contains(withDeleted, c => c.Id == created.Id);
     }
 
     // ── GetById ────────────────────────────────────────────────────────────

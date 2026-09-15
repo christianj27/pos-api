@@ -331,6 +331,11 @@ Returns the authenticated user's own record only.
 ### GET /api/customers
 **Auth**: All roles
 
+**Query Params**
+| Param | Type | Default | Notes |
+|---|---|---|---|
+| `active_only` | boolean | `true` | When `true` (default) only customers with `is_active = true` are returned. Pass `active_only=false` to include soft-deleted customers. |
+
 **Response `200`** — array of Customer objects.
 
 **Customer object**
@@ -349,6 +354,8 @@ Returns the authenticated user's own record only.
 > ✅ **Known gap #1 (resolved)**: `outstanding_debt` is now included in the Customer object. Backend `CustomerResponse` computes it as `initial_debt + SUM(transactions.debt_amount) - SUM(debt_payments.amount)` per customer.
 
 > ℹ️ **Confidential filtering**: When the caller's role is `kasir` or `kurir`, customers with `is_confidential = true` are **excluded entirely** from the response array. Owners receive all customers.
+
+> ℹ️ **Soft-delete filtering**: Soft-deleted customers (`is_active = false`) are **excluded entirely** by default for every role. Use `?active_only=false` (owner tooling / admin) to retrieve them — needed e.g. to inspect a deleted customer's history. Deleted customers remain resolvable by id through the detail endpoints below (`/{id}/debt-history`, `/{id}/pricing`, `/{id}/container-loans`).
 
 ---
 
@@ -379,13 +386,30 @@ Returns the authenticated user's own record only.
 | `name` | string | ❌ | — |
 | `phone` | string \| null | ❌ | — |
 | `address` | string \| null | ❌ | — |
-| `is_active` | boolean | ❌ | Set `false` to deactivate customer |
+| `is_active` | boolean | ❌ | `false` soft-deletes the customer; prefer `DELETE /api/customers/{id}` |
 | `initial_debt` | number | ❌ | Opening balance ≥ 0; replaces previous value when provided |
 | `is_confidential` | boolean | ❌ | Owner only — ignored when sent by kasir/kurir |
 
 **Response `200`** — updated Customer object.
 
-> ⚠️ **Known gap #2 (resolved)**: Frontend `customerService.deactivate()` called `DELETE /api/customers/{id}` (no such route). Fixed: now calls `PUT /api/customers/{id}` with `{ is_active: false }`.
+> ⚠️ **Known gap #2 (resolved)**: Frontend `customerService.deactivate()` originally called `DELETE /api/customers/{id}` (no such route) and was temporarily rerouted to `PUT /api/customers/{id}` with `{ is_active: false }`. The `DELETE /api/customers/{id}` route now exists and performs the soft delete; the frontend calls `customerService.remove()`.
+
+---
+
+### DELETE /api/customers/{id}
+**Auth**: All roles (controller-level `AllStaff` policy — same as `POST`/`PUT`)
+
+**Path Params**: `id` — UUID of the customer.
+
+**Response `204`** — Soft deletes the customer (`is_active = false`). No content.
+
+**Behavior**
+- The record is **retained**: historical transactions, `/{id}/debt-history`, container-loan balances and customer pricing stay intact — deletion never cascades.
+- The customer disappears from `GET /api/customers` (default) and from every customer picker in the app.
+- Deleting a customer **does not** clear their outstanding debt; `/{id}/debt` continues to report the same balance.
+- There is no API to reactivate a deleted customer; restoration is a database-level operation.
+
+**Error `400`** — customer not found: `{ "message": "Customer not found." }`
 
 ---
 

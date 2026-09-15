@@ -8,7 +8,7 @@ namespace Pos.Api.Services.Implementations;
 
 public class CustomerService(AppDbContext db) : ICustomerService
 {
-    public async Task<IEnumerable<CustomerResponse>> GetAllAsync(bool activeOnly = false, string? userRole = null)
+    public async Task<IEnumerable<CustomerResponse>> GetAllAsync(bool activeOnly = true, string? userRole = null)
     {
         var q = db.Customers.AsQueryable();
         if (userRole != "owner") q = q.Where(c => !c.IsConfidential);
@@ -99,6 +99,18 @@ public class CustomerService(AppDbContext db) : ICustomerService
             .SumAsync(dp => dp.Amount);
 
         return (MapToResponse(customer, customer.InitialDebt + totalDebt - totalPaid), null);
+    }
+
+    public async Task<(bool Success, string? Error)> DeleteAsync(Guid id)
+    {
+        var customer = await db.Customers.FindAsync(id);
+        if (customer is null) return (false, "Customer not found.");
+
+        // Soft delete: the row is retained so historical transactions, debt history,
+        // container loans and customer pricing remain intact.
+        customer.IsActive = false;
+        await db.SaveChangesAsync();
+        return (true, null);
     }
 
     public async Task<CustomerPricingResponse?> GetPricingAsync(Guid customerId)

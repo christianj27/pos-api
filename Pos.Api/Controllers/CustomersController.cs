@@ -12,7 +12,7 @@ namespace Pos.Api.Controllers;
 public class CustomersController(ICustomerService customerService) : ControllerBase
 {
     [HttpGet]
-    public async Task<IActionResult> GetAll([FromQuery] bool activeOnly = false)
+    public async Task<IActionResult> GetAll([FromQuery] bool activeOnly = true)
     {
         var role = User.FindFirstValue(ClaimTypes.Role);
         return Ok(await customerService.GetAllAsync(activeOnly, role));
@@ -37,6 +37,15 @@ public class CustomersController(ICustomerService customerService) : ControllerB
         var (customer, error) = await customerService.UpdateAsync(id, effectiveRequest);
         if (customer is null) return BadRequest(new { message = error });
         return Ok(customer);
+    }
+
+    /// <summary>Soft-deletes the customer (is_active = false); the record is retained for history.</summary>
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id)
+    {
+        var (success, error) = await customerService.DeleteAsync(id);
+        if (!success) return BadRequest(new { message = error });
+        return NoContent();
     }
 
     [HttpGet("{id:guid}/pricing")]
