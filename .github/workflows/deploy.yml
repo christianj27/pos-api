@@ -22,6 +22,27 @@ jobs:
         run: dotnet test Pos.Test/Pos.Test.csproj --configuration Release --no-build
       - name: Publish
         run: dotnet publish Pos.Api/Pos.Api.csproj --configuration Release --no-build -o ./publish
+
+        # ── 1. STOP the app so IIS releases the DLL locks ──────────────
+      - name: Take app offline
+        env:
+          FTP_USER: ${{ secrets.FTP_USERNAME }}
+          FTP_PASS: ${{ secrets.FTP_PASSWORD }}
+        run: |
+          cat > app_offline.htm <<'HTML'
+          <!DOCTYPE html>
+          <html><head><title>Updating…</title></head>
+          <body style="font-family:sans-serif;text-align:center;padding-top:20vh">
+            <h1>Deploying an update…</h1>
+            <p>Back in a moment.</p>
+          </body></html>
+          HTML
+          curl -sS --fail -T app_offline.htm \
+            --user "$FTP_USER:$FTP_PASS" \
+            "ftp://${{ secrets.FTP_HOST }}/wwwroot/app_offline.htm"
+          sleep 15        # give IIS time to unload the app + release handles
+
+        # ── 2. Deploy (now nothing is locked) ──────────────────────────
       - name: Deploy to MonsterASP.Net via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.4.0
         with: 
@@ -30,3 +51,20 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./publish/
           server-dir: /wwwroot/
+          log-level: verbose
+
+         # ── 3. START the app again — ALWAYS, even if step 2 failed ─────
+      - name: Bring app back online
+        if: always()
+        env:
+          FTP_USER: ${{ secrets.FTP_USERNAME }}
+          FTP_PASS: ${{ secrets.FTP_PASSWORD }}
+        run: |
+          if curl -sS --fail --user "$FTP_USER:$FTP_PASS" \
+               "ftp://${{ secrets.FTP_HOST }}/wwwroot/" \
+               -Q "DELE /wwwroot/app_offline.htm"; then
+            echo "✓ app_offline.htm removed — site is back online"
+          else
+            echo "::error::Could NOT remove app_offline.htm — the site may still be OFFLINE. Delete it manually via FTP."
+            exit 1
+          fi
