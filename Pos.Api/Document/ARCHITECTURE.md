@@ -1,5 +1,5 @@
 # POS App — Architecture Plan
-> MSMe Water & Gas | Last updated: May 10, 2026
+> MSMe Water & Gas | Last updated: September 16, 2026
 
 ---
 
@@ -202,6 +202,15 @@ DebtPayments                        -- standalone customer debt settlement
   created_by      UUID  FK → Users
   created_at      TIMESTAMPTZ
 
+Expenses                            -- owner-recorded operational expenses (FR-CSH-006); surface as cash_out/operational_expense
+  id              UUID  PK
+  category        ENUM('fuel', 'dues', 'electricity', 'gallon_cap', 'cleaning', 'salary', 'other')  -- stored as string
+  description     VARCHAR(255)     -- free-text detail, e.g. "Isi bensin truk Andi"
+  amount          DECIMAL(15,2)    -- positive
+  expense_date    DATE             -- WIB business date; drives which day the expense appears under in Arus Kas
+  created_by      UUID  FK → Users
+  created_at      TIMESTAMPTZ
+
 ContainerLoans                      -- containers lent to customers; negative quantity = returned
   id              UUID  PK
   transaction_id  UUID  FK → Transactions  -- nullable for standalone returns
@@ -297,7 +306,9 @@ GET    /api/stock/levels           -- all locations; ?location_id=<id> to filter
                                    --   quantity_total: number|null }  -- null for refillable products
 GET    /api/stock/movements
                                    -- ?date=YYYY-MM-DD (optional, defaults to today WIB)
-POST   /api/stock/movements        -- receive, defect (single item)
+POST   /api/stock/movements        -- receive, defect (single item); for refillable defect: only filled container_status accepted;
+                                   -- server atomically creates two StockMovements with shared batch_id:
+                                   -- filled-out (FromLocationId) + empty-in (ToLocationId = same location)
 POST   /api/stock/movements/bulk   -- receive multiple products into the same destination in one request
                                    -- body: { movement_type: 'receive', to_location_id, notes?, items: [{ product_id, quantity, container_status?, purchase_cost? }] }
                                    -- server creates one StockMovements record per item atomically
@@ -353,15 +364,27 @@ GET    /api/customers/{id}/debt-history   -- owner/kasir; per-customer debt deta
                                    -- }  (both arrays sorted newest first)
 
 GET    /api/cash-flow               -- owner only; ?date=YYYY-MM-DD (optional, defaults to today WIB)
-                                   -- aggregates three sources for the given date:
+                                   --                  ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD (optional pair; overrides `date`)
+                                   -- aggregates four sources for the given date/range:
                                    --   1. Transactions: paid_amount → cash_in/sale_payment entry; debt_amount (if >0) → new_debt/debt_created entry
                                    --   2. DebtPayments: amount → cash_in/debt_payment entry
                                    --   3. StockMovements with purchase_cost > 0 → cash_out/stock_purchase entry
+                                   --   4. Expenses: amount → cash_out/operational_expense entry; description = "{category label} - {description}";
+                                   --      filtered by expense_date (not created_at) so a back-dated expense lands on its own day
                                    -- response: CashFlowSummary {
                                    --   total_cash_in, total_cash_out, net_cash, total_new_debt,
                                    --   entries: CashFlowEntry[] (sorted newest first)
                                    -- }
                                    -- CashFlowEntry: { id, flow_type, category, amount, description, reference_id?, created_by_name, created_at }
+
+# Operational expenses (owner only — FR-CSH-006)
+GET    /api/expenses                -- ?date=YYYY-MM-DD (optional, defaults to today WIB); filtered by expense_date
+POST   /api/expenses                -- body: { category, description, amount, expense_date }
+                                   -- category: fuel | dues | electricity | gallon_cap | cleaning | salary | other
+                                   -- validation: category required + allow-listed; description required, max 255;
+                                   --             amount positive; expense_date required and not in the future (WIB)
+PUT    /api/expenses/{id}           -- body identical to POST; 404 when the expense does not exist
+DELETE /api/expenses/{id}           -- 204 No Content; 404 when the expense does not exist
 
 GET    /api/dashboard               -- all authenticated roles; stats scoped to caller for kasir/kurir; ?date=YYYY-MM-DD (optional, defaults to today WIB)
                                    -- response includes: summary stats for selected date, weekly_chart[7] ({ date, revenue, transaction_count, purchase_cost }),
@@ -376,6 +399,9 @@ GET    /api/dashboard               -- all authenticated roles; stats scoped to 
                                    --   [{ product_id, product_name, product_unit, product_category, total_sold, total_received }]
                                    --   Sold = dispatch (refillable: filled-container qty only; simple: all dispatch qty).
                                    --   Received = inbound (to_location_id != null && from_location_id == null); refillable: filled-container qty only; simple: all inbound qty.
+                                   --   payment_method_breakdown: [{ method: 'cash'|'transfer'|'qris', label: 'Tunai'|'Transfer'|'QRIS', amount, count }]
+                                   --   Revenue per payment method for completed transactions on date; scoped to caller for kasir/kurir.
+                                   --   Always contains 3 items ordered [cash, transfer, qris]; zero-transaction methods show amount=0, count=0.
 ```
 
 ---
@@ -403,7 +429,7 @@ src/
 │   ├── Customers/           -- CustomerList, CustomerDebt, ContainerLoans
 │   ├── DebtPayments/        -- two tabs: Hutang Aktif (clickable rows → CustomerDebtDetailPage) + Riwayat (date-filtered payment history)
 │   │   └── CustomerDebtDetailPage -- per-customer debt detail at /debt-payments/:customerId (owner/kasir)
-│   ├── CashFlow/            -- owner only; date-filtered cash flow summary + entry list at /cash-flow
+│   ├── CashFlow/            -- owner only; date-filtered cash flow summary + entry list at /cash-flow; record/edit/delete operational expenses (FR-CSH-006)
 │   ├── Locations/           -- LocationList (warehouse + trucks)
 │   └── Users/               -- owner only
 ├── hooks/
@@ -417,7 +443,8 @@ src/
 │   ├── authService.js
 │   ├── stockService.js
 │   ├── transactionService.js
-│   ├── cashFlowService.ts   -- GET /api/cash-flow; aggregates tx/debt payments/stock movements for a date
+│   ├── cashFlowService.ts   -- GET /api/cash-flow; aggregates tx/debt payments/stock movements/expenses for a date
+│   ├── expenseService.ts    -- GET/POST/PUT/DELETE /api/expenses (owner only; FR-CSH-006)
 │   ├── customerService.js
 │   ├── debtService.js
 │   └── containerLoanService.js
@@ -513,7 +540,7 @@ Add `manifest.json` + service worker via Vite plugin so couriers can install the
 ### Phase 1A — Foundation (do first, blocks everything)
 1. Scaffold ASP.NET Core Web API project (.NET 10 LTS, Controllers)
 2. Configure EF Core + Npgsql, connect to Neon Singapore
-3. Create all DB migrations (12 entities: Users, Locations, Products, Customers, CustomerPricing, StockMovements, Transactions, TransactionItems, Payments, DebtPayments, ContainerLoans, RefreshTokens)
+3. Create all DB migrations (15 entities: Users, Locations, Products, Customers, CustomerPricing, StockMovements, Transactions, TransactionItems, Payments, DebtPayments, ContainerLoans, RefreshTokens, DeliveryAssignments, DeliveryAssignmentItems, Expenses)
 4. Implement JWT auth middleware, BCrypt, role policies (`owner`, `kurir`, `kasir`)
 5. `POST /api/auth/login` + `POST /api/auth/refresh`
 6. CORS config, HTTPS redirect, security headers middleware
@@ -531,6 +558,7 @@ Add `manifest.json` + service worker via Vite plugin so couriers can install the
 16. Payments — partial payment support (paid_amount field, multiple payment events per transaction)
 17. ContainerLoans — record lent/returned containers per customer
 18. DebtPayments — standalone debt settlement, computed customer outstanding balance
+19. Expenses — owner-recorded operational expenses (FR-CSH-006) surfaced in the Arus Kas cash flow page
 19. Dashboard summary endpoint
 
 ### Phase 1C — Frontend (parallel with 1B)

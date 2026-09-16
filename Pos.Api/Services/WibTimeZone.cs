@@ -17,4 +17,7 @@ public static class WibTimeZone
 
     public static DateOnly TodayWib() =>
         DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Zone));
+
+    /// <summary>Converts a UTC timestamp to wall-clock time in WIB.</summary>
+    public static DateTime ToWib(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(utc, Zone);
 }

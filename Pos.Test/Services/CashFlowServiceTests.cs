@@ -132,6 +132,87 @@ public class CashFlowServiceTests
         Assert.Contains(result.Entries, e => e.FlowType == "cash_out" && e.Category == "stock_purchase" && e.Amount == 50000m);
     }
 
+    // ── Expenses (FR-CSH-006) ──────────────────────────────────────────────
+
+    private Expense AddExpense(decimal amount, DateOnly expenseDate, string description = "Isi bensin truk",
+        ExpenseCategory category = ExpenseCategory.Fuel)
+    {
+        var expense = new Expense
+        {
+            Id = Guid.NewGuid(),
+            Category = category,
+            Description = description,
+            Amount = amount,
+            ExpenseDate = expenseDate,
+            CreatedBy = StaffId,
+            CreatedAt = DateTime.UtcNow
+        };
+        _db.Expenses.Add(expense);
+        _db.SaveChanges();
+        return expense;
+    }
+
+    [Fact]
+    public async Task GetCashFlow_Expense_GeneratesCashOutOperationalExpenseEntry()
+    {
+        AddExpense(75000m, Today);
+
+        var result = await _sut.GetCashFlowAsync(Today);
+
+        Assert.Contains(result.Entries, e =>
+            e.FlowType == "cash_out" &&
+            e.Category == "operational_expense" &&
+            e.Amount == 75000m &&
+            e.Description == "Bensin - Isi bensin truk");
+    }
+
+    [Fact]
+    public async Task GetCashFlow_Expense_IsIncludedInCashOutTotal()
+    {
+        AddExpense(20000m, Today, "Iuran kebersihan", ExpenseCategory.Cleaning);
+
+        var result = await _sut.GetCashFlowAsync(Today);
+
+        Assert.Equal(20000m, result.TotalCashOut);
+        Assert.Equal(-20000m, result.NetCash);
+    }
+
+    [Fact]
+    public async Task GetCashFlow_Expense_UsesBusinessDateForEntryTimestamp()
+    {
+        // Recorded 3 days ago, but business-dated today → must land on today.
+        var expense = AddExpense(15000m, Today);
+        expense.CreatedAt = DateTime.UtcNow.AddDays(-3);
+        _db.SaveChanges();
+
+        var result = await _sut.GetCashFlowAsync(Today);
+
+        var entry = Assert.Single(result.Entries, e => e.Category == "operational_expense");
+        Assert.Equal(Today, DateOnly.FromDateTime(Pos.Api.Services.WibTimeZone.ToWib(entry.CreatedAt)));
+    }
+
+    [Fact]
+    public async Task GetCashFlow_Expense_OnAnotherBusinessDate_IsExcluded()
+    {
+        AddExpense(40000m, Today.AddDays(-2));
+
+        var result = await _sut.GetCashFlowAsync(Today);
+
+        Assert.DoesNotContain(result.Entries, e => e.Category == "operational_expense");
+    }
+
+    [Fact]
+    public async Task GetCashFlowRange_Expenses_IncludesBusinessDatesWithinRange()
+    {
+        AddExpense(30000m, Today.AddDays(-1), "Gaji karyawan", ExpenseCategory.Salary);
+        AddExpense(10000m, Today.AddDays(-5));
+
+        var result = await _sut.GetCashFlowRangeAsync(Today.AddDays(-2), Today);
+
+        Assert.Contains(result.Entries, e => e.Category == "operational_expense" && e.Amount == 30000m);
+        Assert.DoesNotContain(result.Entries, e => e.Category == "operational_expense" && e.Amount == 10000m);
+    }
+
     // ── Summary totals ─────────────────────────────────────────────────────
 
     [Fact]

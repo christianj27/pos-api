@@ -73,6 +73,26 @@ public class CashFlowService(AppDbContext db) : ICashFlowService
                 m.Id, m.Creator.Name, m.CreatedAt));
         }
 
+        // 4. Expenses (operational, owner-recorded) - cash_out/operational_expense
+        //    Filtered by the business date (expense_date) rather than created_at so a back-dated
+        //    expense lands on the day it belongs to.
+        var expenses = await db.Expenses
+            .Include(x => x.Creator)
+            .Where(x => x.ExpenseDate >= startDate && x.ExpenseDate <= endDate)
+            .ToListAsync();
+
+        foreach (var x in expenses)
+        {
+            // Keep the entry on its business date while preserving the recording time-of-day (WIB).
+            var (dayStartUtc, _) = WibTimeZone.GetUtcDayBounds(x.ExpenseDate);
+            var occurredAt = dayStartUtc.Add(WibTimeZone.ToWib(x.CreatedAt).TimeOfDay);
+
+            entries.Add(new CashFlowEntryResponse(
+                Guid.NewGuid(), x.Id, "cash_out", "operational_expense", x.Amount,
+                $"{x.Category.ToLabel()} - {x.Description}",
+                x.Id, x.Creator.Name, occurredAt));
+        }
+
         entries.Sort((a, b) => b.CreatedAt.CompareTo(a.CreatedAt));
 
         var totalCashIn = entries.Where(e => e.FlowType == "cash_in").Sum(e => e.Amount);

@@ -87,6 +87,7 @@ builder.Services.AddScoped<IContainerLoanService, ContainerLoanService>();
 builder.Services.AddScoped<IDebtPaymentService, DebtPaymentService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<ICashFlowService, CashFlowService>();
+builder.Services.AddScoped<IExpenseService, ExpenseService>();
 
 // -- Controllers & OpenAPI -----------------------------------------------------
 builder.Services.AddControllers();

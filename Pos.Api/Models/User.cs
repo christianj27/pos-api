@@ -20,4 +20,5 @@ public class User
     public ICollection<RefreshToken> RefreshTokens { get; set; } = [];
     public ICollection<DeliveryAssignment> CreatedAssignments { get; set; } = [];
     public ICollection<DeliveryAssignment> KurirAssignments { get; set; } = [];
+    public ICollection<Expense> Expenses { get; set; } = [];
 }

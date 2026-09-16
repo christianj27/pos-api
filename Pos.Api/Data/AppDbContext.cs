@@ -20,6 +20,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<DeliveryAssignment> DeliveryAssignments => Set<DeliveryAssignment>();
     public DbSet<DeliveryAssignmentItem> DeliveryAssignmentItems => Set<DeliveryAssignmentItem>();
+    public DbSet<Expense> Expenses => Set<Expense>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -209,6 +210,22 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
              .WithMany(t => t.DebtPayments)
              .HasForeignKey(dp => dp.TransactionId)
              .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // -- Expense -----------------------------------------------------------
+        modelBuilder.Entity<Expense>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(x => x.Category).HasConversion<string>();
+            e.Property(x => x.Description).HasMaxLength(255).IsRequired();
+            e.Property(x => x.Amount).HasPrecision(15, 2);
+            e.Property(x => x.CreatedAt).HasDefaultValueSql("now()");
+            e.HasIndex(x => x.ExpenseDate); 
+            e.HasOne(x => x.Creator)
+             .WithMany(u => u.Expenses)
+             .HasForeignKey(x => x.CreatedBy)
+             .OnDelete(DeleteBehavior.Restrict);
         });
 
         // -- ContainerLoan -----------------------------------------------------

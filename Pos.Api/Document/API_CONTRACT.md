@@ -1,5 +1,5 @@
 # API Contract — POS App
-> MSMe Water & Gas | Version 1.0 | Last updated: May 26, 2026
+> MSMe Water & Gas | Version 1.0 | Last updated: September 16, 2026
 
 ---
 
@@ -581,14 +581,22 @@ _(Single receive or defect record)_
 |---|---|---|---|
 | `product_id` | string (UUID) | ✅ | — |
 | `movement_type` | string | ✅ | `receive` \| `defect` |
-| `container_status` | string | Conditional | `filled` \| `empty` \| `na`; required for refillable products |
+| `container_status` | string | Conditional | `filled` \| `empty` \| `na`; required for refillable products; for `defect` on refillable, only `filled` is accepted |
 | `quantity` | number | ✅ | Positive integer |
 | `from_location_id` | string (UUID) | ❌ | Source location; null for external vendor receives |
 | `to_location_id` | string (UUID) | Conditional | Destination; required for `receive` |
 | `purchase_cost` | number | Conditional | Required on vendor `receive` movements |
 | `note` | string | Conditional | Required for `defect`; max 255 chars |
 
-**Response `201`** — StockMovement object.
+**Validation**
+- `defect` on a refillable product with `container_status: empty` → `400 "Untuk produk refillable, defek hanya berlaku untuk kontainer terisi."`
+
+**Behavior — `defect` on refillable product (filled)**  
+Server atomically creates **two** `StockMovement` records sharing the same `batch_id`:
+1. `from_location_id = <location>`, `container_status = filled` — filled container leaves the location
+2. `to_location_id = <location>`, `container_status = empty` — empty container arrives at the same location
+
+**Response `201`** — StockMovement object (or array of two for refillable defect).
 
 ---
 
@@ -1130,6 +1138,8 @@ _(Record multiple container loans or returns for one customer without a transact
 
 > When both `start_date` and `end_date` are present, the response aggregates all entries across the full date range (e.g. an entire calendar month). The `date` param is ignored in this case.
 
+> **Operational expenses (FR-CSH-006)** are a fourth entry source. Unlike the other three sources (which are filtered by `created_at`), expenses are filtered by their business date `expense_date`: a single `date` matches `expense_date = date`, and a range matches `expense_date BETWEEN start_date AND end_date`. The entry `created_at` is emitted as the expense business date combined with the recording time-of-day (WIB), so back-dated expenses group under the correct day.
+
 **Response `200`**
 | Field | Type | Notes |
 |---|---|---|
@@ -1140,7 +1150,7 @@ _(Record multiple container loans or returns for one customer without a transact
 | `entries` | array | All entries for the date; sorted newest first |
 | `entries[].id` | string | Synthetic composite ID |
 | `entries[].flow_type` | string | `cash_in` \| `cash_out` \| `new_debt` |
-| `entries[].category` | string | `sale_payment` \| `debt_payment` \| `stock_purchase` \| `debt_created` |
+| `entries[].category` | string | `sale_payment` \| `debt_payment` \| `stock_purchase` \| `debt_created` \| `operational_expense` |
 | `entries[].amount` | number | — |
 | `entries[].description` | string | Human-readable label |
 | `entries[].reference_id` | string \| null | ID of the source record |
@@ -1154,6 +1164,72 @@ _(Record multiple container loans or returns for one customer without a transact
 | Transaction with `debt_amount > 0` | `new_debt` | `debt_created` |
 | Standalone DebtPayment | `cash_in` | `debt_payment` |
 | StockMovement with `purchase_cost > 0` | `cash_out` | `stock_purchase` |
+| Expense (operational) | `cash_out` | `operational_expense` |
+
+---
+
+### GET /api/expenses
+**Auth**: Owner only
+
+**Query Params**
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `date` | string (YYYY-MM-DD) | ❌ | Business date (WIB) filter applied to `expense_date`; defaults to today WIB |
+
+**Response `200`** — array of Expense objects.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | string (UUID) | — |
+| `category` | string | `fuel` \| `dues` \| `electricity` \| `gallon_cap` \| `cleaning` \| `salary` \| `other` |
+| `description` | string | Free-text detail (max 255 chars) |
+| `amount` | number | Positive |
+| `expense_date` | string (YYYY-MM-DD) | Business date (WIB) — determines which day the expense appears under |
+| `created_by_name` | string | — |
+| `created_at` | string (ISO 8601) | — |
+
+---
+
+### POST /api/expenses
+**Auth**: Owner only
+
+**Request Body**
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `category` | string | ✅ | One of `fuel` \| `dues` \| `electricity` \| `gallon_cap` \| `cleaning` \| `salary` \| `other` |
+| `description` | string | ✅ | Free text, max 255 chars (trimmed) |
+| `amount` | number | ✅ | Positive |
+| `expense_date` | string (YYYY-MM-DD) | ✅ | Business date (WIB); must not be in the future |
+
+**Response `200`** — Expense object.
+
+**Errors**
+| Status | Message |
+|---|---|
+| `400` | `"Kategori pengeluaran wajib dipilih."` / `"Kategori pengeluaran tidak valid."` |
+| `400` | `"Deskripsi pengeluaran wajib diisi."` / `"Deskripsi pengeluaran tidak boleh lebih dari 255 karakter."` |
+| `400` | `"Jumlah pengeluaran harus berupa angka positif."` |
+| `400` | `"Tanggal pengeluaran tidak boleh di masa depan."` |
+
+---
+
+### PUT /api/expenses/{id}
+**Auth**: Owner only
+
+**Request Body** — identical to `POST /api/expenses`.
+
+**Response `200`** — updated Expense object.
+
+**Errors** — `404` (`"Pengeluaran tidak ditemukan."`) when the expense does not exist; otherwise the same `400` validations as `POST`.
+
+---
+
+### DELETE /api/expenses/{id}
+**Auth**: Owner only
+
+**Response `204`** — no body.
+
+**Errors** — `404` (`"Pengeluaran tidak ditemukan."`) when the expense does not exist.
 
 ---
 
@@ -1215,6 +1291,11 @@ _(Record multiple container loans or returns for one customer without a transact
 | `daily_stock_summary[].product_category` | string | `simple` \| `refillable` |
 | `daily_stock_summary[].total_sold` | number | Units sold via dispatch. Refillable: filled-container dispatch qty only. Simple: all dispatch qty |
 | `daily_stock_summary[].total_received` | number | Units received inbound (`to_location_id != null && from_location_id == null`). Refillable: filled-container inbound qty only. Simple: all inbound qty |
+| `payment_method_breakdown` | array | Revenue breakdown by payment method for completed transactions on `date`. Scoped to caller for kasir/kurir; store-wide for owner. Always contains exactly 3 items (cash, transfer, qris), ordered in that sequence. Items with zero transactions still appear with `amount=0` and `count=0` |
+| `payment_method_breakdown[].method` | string | `cash` \| `transfer` \| `qris` |
+| `payment_method_breakdown[].label` | string | `Tunai` \| `Transfer` \| `QRIS` (localized label) |
+| `payment_method_breakdown[].amount` | number | Sum of `paid_amount` for completed transactions of this payment method on `date` |
+| `payment_method_breakdown[].count` | number | Count of completed transactions of this payment method on `date` |
 
 ---
 

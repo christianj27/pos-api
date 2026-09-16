@@ -1,5 +1,5 @@
 # POS App — Functional Requirements Document (FRD)
-> MSMe Water & Gas | Version 5.8 | September 15, 2026
+> MSMe Water & Gas | Version 5.10 | September 16, 2026
 
 ---
 
@@ -7,6 +7,7 @@
 
 | Version | Date | Author | Changes |
 |---|---|---|---------|
+| 5.10 | September 16, 2026 | — | FR-CSH-006 — Pengeluaran Operasional: halaman Arus Kas (owner only) kini dapat mencatat, mengubah, dan menghapus pengeluaran operasional dengan **kategori tetap + deskripsi bebas** (contoh: bensin, iuran, listrik, tutup galon, keperluan kebersihan, gaji karyawan). Tabel baru `Expenses` (`id`, `category`, `description`, `amount`, `expense_date`, `created_by`, `created_at`) dengan enum `ExpenseCategory` disimpan sebagai string (`fuel`, `dues`, `electricity`, `gallon_cap`, `cleaning`, `salary`, `other`); migrasi EF `AddExpensesTable`. Endpoint baru owner-only: `GET /api/expenses?date=YYYY-MM-DD`, `POST /api/expenses`, `PUT /api/expenses/{id}`, `DELETE /api/expenses/{id}`. `CashFlowService` menambah sumber entri keempat — pengeluaran masuk sebagai `flow_type = cash_out` dan `category = operational_expense`, deskripsi entri `"{Label Kategori} - {Deskripsi}"`, dan timestamp entri mengikuti tanggal bisnis (`expense_date`) sehingga pengeluaran yang dicatat mundur tetap muncul pada hari yang benar. Pengeluaran otomatis menambah kartu **Kas Keluar** dan ekspor XLSX bulanan — **tetap 4 kartu ringkasan**, tanpa field baru pada `CashFlowSummary`. Aturan validasi baru: VAL-CSH-001–004. Frontend: `CashFlowPage.tsx` menambah tombol "+ Catat Pengeluaran", modal catat/ubah (dropdown Kategori, Deskripsi, Jumlah, Tanggal), aksi ikon Ubah/Hapus pada baris pengeluaran, dan dialog konfirmasi hapus; file baru `expenseService.ts` + `utils/expenseLabels.ts`; seed `mockDb.expenses`; label kategori `operational_expense` di `cashFlowExport.ts`; kelas SCSS baru (`.headerAction`, `.rowRight`, `.rowActions`, `.iconBtn`, `.iconBtnDanger`, `.formFields`, `.formError`). |
 | 5.9 | September 16, 2026 | — | FR-DSH-014 — Ringkasan Pinjaman Kontainer: new **"Kontainer Pelanggan"** section added to the Dashboard immediately below **"Hutang Pelanggan"** (FR-DSH-009) and above **"Pergerakan Stok"** (FR-DSH-012). It mirrors the container balance list of FR-CON-005 as a **read-only accordion** — one collapsed row per customer showing the name plus a summary `"{N} produk · {M} unit"`, expanding to one row per product with that product's net container balance. The two direction sections of FR-CON-005 are kept: **"Pelanggan memegang kontainer kami"** (net > 0, amber) and **"Kontainer pelanggan ada di kami"** (net < 0, blue). Visible to **all roles store-wide** and **not date-filtered** (current live state, same as FR-DSH-004/009). Active customers only, reversed loans (`is_reversed = true`) excluded, net = 0 pairs omitted, no search input, no row actions, and **no change to the Stock page Kontainer tab** (FR-CON-005/006/007). Backend: new `ContainerLoanSummaryItem` record in `Pos.Api/DTOs/Dashboard/`; `DashboardResponse` gains `container_loans`; `DashboardService.GetDashboardAsync` aggregates `Σ quantity` per customer + product. Frontend: `ContainerLoanSummaryItem` interface + `DashboardStats.containerLoans` in `types/index.ts`; `computeContainerLoanSummary()` helper in the `dashboardService.ts` mock; new `groupContainerLoans()` helper and `ContainerLoanCustomerRow` component added to `DashboardPage.tsx`; new `.containerLoan*` classes in `DashboardPage.module.scss`. No new endpoint and no migration. |
 | 5.8 | September 15, 2026 | — | FR-STK-013 updated — Setiap baris produk pada tab **Tukar Agent** kini memiliki input baru **"Harga Beli Satuan (Rp)"**. Frontend mengisi otomatis field per-item **"Biaya Pembelian (Rp)"** = `harga beli satuan × Jml Terisi Diterima` (biaya dibayar untuk stok terisi yang diterima dari agent); nilai hasil hitung itu tetap dapat diubah manual sebagai override — begitu diubah manual, perhitungan otomatis berhenti sampai field dikosongkan kembali (mengosongkan field langsung menghitung ulang dari harga satuan × jumlah terisi). Baris **Total Biaya Pembelian** tidak berubah (`Σ Biaya Pembelian` per item), sehingga kini ikut terisi otomatis. Nilai `purchase_cost` yang dikirim ke `POST /api/stock/vendor-exchange/bulk` **tidak berubah** (tetap total per item) — **tanpa perubahan backend/API** dan tanpa migrasi. Frontend: `StockPage.tsx` — `VendorItem` menambah `unit_purchase_cost` + `cost_overridden`; helper `newVendorItem()` + `computeVendorItemCost()` baru; `updateVendorItem()` menghitung ulang total saat harga satuan / jumlah terisi berubah; baris memakai kelas baru `.itemRowControls2Start`. |
 | 5.7 | September 15, 2026 | — | FR-CST-004 dirombak + FR-CST-010 baru — **Daftar pelanggan hanya menampilkan pelanggan aktif** dan tombol "Nonaktifkan" berubah menjadi **"Hapus"**. `GET /api/customers` kini menyaring `is_active = true` secara default (param `active_only`, default `true`; kirim `active_only=false` untuk menyertakan pelanggan yang sudah dihapus). Endpoint baru `DELETE /api/customers/{id}` melakukan **soft delete** (`is_active = false`) dan mengembalikan `204` — baris tetap disimpan agar riwayat transaksi, riwayat hutang, pinjaman kontainer, dan harga khusus tidak hilang (mengikuti pola `DELETE /api/users/{id}`). UI reaktivasi dihapus: tombol "Aktifkan" tidak ada lagi dan pelanggan yang dihapus hanya dapat dipulihkan di level database. Backend: default `ICustomerService.GetAllAsync` `activeOnly` diubah `false` → `true`; `ICustomerService.DeleteAsync` + `CustomerService.DeleteAsync` ditambahkan; `CustomersController.GetAll` default `activeOnly = true`; aksi `[HttpDelete("{id:guid}")]` baru. Frontend: `customerService.deactivate()`/`reactivate()` digantikan `customerService.remove()`; mock `list` memfilter `isActive`; aksi "Hapus" pada `CustomersPage` memakai `ConfirmDialog` berjudul "Hapus Pelanggan" dan menampilkan peringatan berisi sisa hutang bila pelanggan masih memiliki hutang; badge Aktif/Tidak Aktif dan gaya kartu `.cardInactive` dihapus (`.deactivateBtn` → `.deleteBtn`, `.activateBtn` dihapus). Mock: seed pelanggan non-aktif kedua (`cust-5`, masih berhutang) ditambahkan; total hutang pada `dashboardService` mock ikut menyaring pelanggan aktif agar konsisten dengan backend. |
@@ -1198,6 +1199,7 @@ The dashboard shall include a **"Kontainer Pelanggan"** section positioned immed
 | **Container Loans** — View (Stock page Kontainer tab) / standalone return | ✅ | ❌ | ❌ |
 | **Container Loans** — View summary (Dashboard section, FR-DSH-014) | ✅ | ✅ | ✅ |
 | **Container Loans** — Return during transaction | ✅ | ✅ | ✅ |
+| **Expenses** — Manage (Arus Kas page, FR-CSH-006) | ✅ | ❌ | ❌ |
 | **Dashboard** | ✅ (full view) | ✅ (user-scoped, owner-only sections hidden) | ✅ (user-scoped, owner-only sections hidden) |
 
 ---
@@ -1244,6 +1246,10 @@ The dashboard shall include a **"Kontainer Pelanggan"** section positioned immed
 | ContainerLoan | `product_id` | UUID | refillable only | Yes |
 | ContainerLoan | `customer_id` | UUID | active customer | Yes |
 | ContainerLoan | `quantity` | INT | non-zero integer | Yes |
+| Expense | `category` | ENUM | `fuel`, `dues`, `electricity`, `gallon_cap`, `cleaning`, `salary`, `other` (stored as string) | Yes |
+| Expense | `description` | VARCHAR(255) | max 255 | Yes |
+| Expense | `amount` | DECIMAL(15,2) | positive | Yes |
+| Expense | `expense_date` | DATE | business date (WIB); not in the future | Yes |
 
 ---
 
@@ -1387,6 +1393,8 @@ Four summary cards displayed in a 2×2 grid:
 | Net Kas | Blue (positive) / Red (negative) | Kas Masuk − Kas Keluar |
 | Piutang Baru | Amber | Sum of all `new_debt` entries |
 
+The four cards are unchanged by FR-CSH-006: recorded operational expenses are `cash_out` entries, so they are already counted inside **Kas Keluar** and **Net Kas** — there is no separate expense card and no additional field on the cash-flow response.
+
 **FR-CSH-004 — Entry list with three flow types**
 Each entry in the list has a left-colored border indicating its flow type:
 
@@ -1396,8 +1404,9 @@ Each entry in the list has a left-colored border indicating its flow type:
 | `cash_in` | Green | `debt_payment` | Standalone `DebtPayment` record |
 | `cash_out` | Red | `stock_purchase` | `StockMovement` with `purchase_cost > 0` (Receive / Vendor Exchange) |
 | `new_debt` | Amber | `debt_created` | `debt_amount` portion of a transaction (`total_amount − paid_amount`) |
+| `cash_out` | Red | `operational_expense` | Owner-recorded operational expense (FR-CSH-006) |
 
-Each row shows: flow-type badge, description (e.g. "Penjualan – Toko Sedap"), staff name · time, and amount with +/− prefix and matching color.
+Each row shows: flow-type badge (expense rows show a red **"Pengeluaran"** badge instead of "Kas Keluar"), description (e.g. "Penjualan – Toko Sedap"), staff name · time, and amount with +/− prefix and matching color.
 Entries are sorted newest first within the selected date.
 
 New API endpoint: `GET /api/cash-flow?date=YYYY-MM-DD` — defaults to today WIB; response: `CashFlowSummary`.
@@ -1413,3 +1422,45 @@ New API endpoint: `GET /api/cash-flow?date=YYYY-MM-DD` — defaults to today WIB
 - While the export is in progress, the button shows a spinner and "Memproses…" text and is disabled.
 - On error, a toast notification is shown.
 - The month picker is independent of the day-level date filter — they do not affect each other.
+- Operational expenses (FR-CSH-006) are included: they count toward Kas Keluar in **Ringkasan Bulanan** and appear with category **Pengeluaran** in **Detail Transaksi**.
+
+**FR-CSH-006 — Pengeluaran Operasional (Catat / Ubah / Hapus)**
+Owner dapat mencatat pengeluaran operasional dengan deskripsi bebas — mis. bensin, iuran, listrik, tutup galon, keperluan kebersihan, gaji karyawan — langsung dari halaman Arus Kas. Setiap pengeluaran tampil sebagai entri `cash_out` dan ikut menambah kartu **Kas Keluar** serta laporan XLSX bulanan.
+
+*Kategori (allow-list):* `fuel` (Bensin), `dues` (Iuran), `electricity` (Listrik), `gallon_cap` (Tutup Galon), `cleaning` (Kebersihan), `salary` (Gaji Karyawan), `other` (Lainnya).
+
+*Field formulir:*
+- **Kategori** (wajib) — dropdown berisi tujuh kategori di atas; default `fuel`
+- **Deskripsi** (wajib, maks 255 karakter) — teks bebas, mis. "Isi bensin truk Andi"
+- **Jumlah (Rp)** (wajib, > 0)
+- **Tanggal** (wajib) — tanggal bisnis (WIB); default = tanggal filter halaman yang sedang aktif; tidak boleh di masa depan (input `max` = hari ini WIB)
+
+*Perilaku:*
+- Tombol **"+ Catat Pengeluaran"** berada di header halaman (owner only) dan membuka modal catat/ubah.
+- Baris pengeluaran pada daftar arus kas memakai badge merah **"Pengeluaran"** dan menampilkan dua aksi ikon: **Ubah** (membuka modal terisi nilai saat ini) dan **Hapus** (dialog konfirmasi `"Hapus Pengeluaran"` yang menyebut deskripsi + jumlah).
+- Deskripsi entri yang dihasilkan backend: `"{Label Kategori} - {Deskripsi}"` (mis. `"Bensin - Isi bensin truk Andi"`).
+- Entri difilter berdasarkan **tanggal bisnis** (`expense_date`), bukan `created_at`, sehingga pengeluaran yang dicatat mundur tetap muncul pada hari yang benar. Timestamp entri memakai tanggal bisnis tersebut dengan jam pencatatan (WIB) agar pengurutan, pengelompokan harian, dan ekspor tetap konsisten.
+- Setelah menyimpan pengeluaran dengan tanggal berbeda dari filter aktif, filter tanggal halaman otomatis berpindah ke tanggal tersebut agar baris baru langsung terlihat.
+- Pengeluaran tidak mengubah jumlah kartu ringkasan (tetap 4 kartu) dan tidak menambah field pada `CashFlowSummary`.
+- Akses: **owner only** (sama dengan seluruh halaman Arus Kas).
+
+*Perbedaan tanggal dengan sumber lain:* seluruh sumber arus kas lain (transaksi, pembayaran hutang, pembelian stok) difilter dengan `created_at`, sedangkan pengeluaran difilter dengan `expense_date`. Bila `start_date` + `end_date` dikirim, pengeluaran disaring dengan `expense_date BETWEEN start_date AND end_date`.
+
+*Endpoint (owner only):*
+- `GET /api/expenses?date=YYYY-MM-DD` — daftar pengeluaran pada tanggal bisnis tersebut (default: hari ini WIB)
+- `POST /api/expenses` — body: `{ category, description, amount, expense_date }`
+- `PUT /api/expenses/{id}` — body sama dengan `POST`; `404` bila id tidak ditemukan
+- `DELETE /api/expenses/{id}` — mengembalikan `204 No Content`; `404` bila id tidak ditemukan
+
+*Tabel:* `Expenses` — `id` (UUID PK), `category` (string), `description` (VARCHAR(255)), `amount` (DECIMAL(15,2)), `expense_date` (DATE), `created_by` (FK → Users), `created_at` (TIMESTAMPTZ). Migrasi EF: `AddExpensesTable`.
+
+**Validasi FR-CSH-006**
+
+| ID | Field | Rule | Error Message |
+|---|---|---|---|
+| VAL-CSH-001 | `category` | Wajib; harus salah satu dari `fuel`, `dues`, `electricity`, `gallon_cap`, `cleaning`, `salary`, `other` | `"Kategori pengeluaran wajib dipilih."` / `"Kategori pengeluaran tidak valid."` |
+| VAL-CSH-002 | `description` | Wajib, maks 255 karakter | `"Deskripsi pengeluaran wajib diisi."` / `"Deskripsi pengeluaran tidak boleh lebih dari 255 karakter."` |
+| VAL-CSH-003 | `amount` | Wajib, positif | `"Jumlah pengeluaran harus berupa angka positif."` |
+| VAL-CSH-004 | `expense_date` | Wajib; tidak boleh di masa depan (WIB) | `"Tanggal pengeluaran wajib diisi."` / `"Tanggal pengeluaran tidak boleh di masa depan."` |
+
+*Notifikasi Toast:* Catat → `"Pengeluaran berhasil dicatat."` · Ubah → `"Pengeluaran berhasil diperbarui."` · Hapus → `"Pengeluaran berhasil dihapus."` · Gagal → `"Terjadi kesalahan. Silakan coba lagi."`
