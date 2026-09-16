@@ -1,15 +1,15 @@
 name: Build, Test & Publish to GHCR
  
 on:
-  push:
-    branches: [master]
-    paths:                      # ← only run when CODE changes (see below)
-      - 'Pos.Api/**'
-      - 'Pos.Test/**'
-      - 'Pos.slnx'
-      - 'Pos.Api/Dockerfile'
-      - '.dockerignore'
-      - '.github/workflows/**'
+  # push:
+  #   branches: [master]
+  #   paths:                      # ← only run when CODE changes (see below)
+  #     - 'Pos.Api/**'
+  #     - 'Pos.Test/**'
+  #     - 'Pos.slnx'
+  #     - 'Pos.Api/Dockerfile'
+  #     - '.dockerignore'
+  #     - '.github/workflows/**'
   workflow_dispatch:          # manual trigger from GitHub UI (Actions tab)
 
 jobs:
