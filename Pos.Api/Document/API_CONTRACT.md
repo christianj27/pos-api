@@ -1,5 +1,5 @@
 # API Contract — POS App
-> MSMe Water & Gas | Version 1.0 | Last updated: September 16, 2026
+> MSMe Water & Gas | Version 1.1 | Last updated: September 16, 2026
 
 ---
 
@@ -1313,6 +1313,7 @@ _(Record multiple container loans or returns for one customer without a transact
 | Field | Type | Notes |
 |---|---|---|
 | `status` | string | `healthy` |
+| `version` | string | App (release) version running on the server — sourced from `<Version>` in `Pos.Api.csproj` (e.g. `1.0.0`) |
 | `timestamp` | string (ISO 8601) | Server timestamp |
 
 ---

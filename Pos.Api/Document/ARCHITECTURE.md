@@ -1,5 +1,5 @@
 # POS App — Architecture Plan
-> MSMe Water & Gas | Last updated: September 16, 2026
+> MSMe Water & Gas | Doc Version 1.0 | App Version 1.0.0 | Last updated: September 16, 2026
 
 ---
 

@@ -22,6 +22,21 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Verify app version (csproj ↔ FRD)
+        shell: pwsh
+        run: |
+          [xml]$csproj = Get-Content 'Pos.Api/Pos.Api.csproj'
+          $csprojVersion = $csproj.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          $frdHeader = (Get-Content 'Pos.Api/Document/FRD.md' -TotalCount 2)[1]
+          if ($frdHeader -notmatch 'App Version\s+([0-9]+\.[0-9]+\.[0-9]+)') {
+            throw "FRD header has no 'App Version X.Y.Z' token: $frdHeader"
+          }
+          $frdVersion = $Matches[1]
+          if ($csprojVersion -ne $frdVersion) {
+            throw "Version drift: Pos.Api.csproj <Version>=$csprojVersion but FRD 'App Version'=$frdVersion"
+          }
+          Write-Host "App version OK: $csprojVersion"
  
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v4

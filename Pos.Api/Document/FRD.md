@@ -1,5 +1,5 @@
 # POS App — Functional Requirements Document (FRD)
-> MSMe Water & Gas | Version 5.11 | September 16, 2026
+> MSMe Water & Gas | Spec Version 5.12 | App Version 1.0.0 | September 16, 2026
 
 ---
 
@@ -7,6 +7,7 @@
 
 | Version | Date | Author | Changes |
 |---|---|---|---------|
+| 5.12 | September 16, 2026 | — | Kebijakan versi diperkenalkan — aplikasi kini memiliki **App Version** tersendiri (`1.0.0`) yang terpisah dari **Spec Version** dokumen ini; tidak ada perubahan perilaku fungsional. Section baru **§1.5 Versioning Policy** menetapkan dua aliran penomoran tersebut, aturan naik versi aplikasi (MAJOR = batas fase/perubahan breaking, MINOR = requirement atau modul fitur baru, PATCH = perbaikan bug/teks/UX), tabel pemetaan App ↔ Spec, serta catatan agar tabel Revision History tetap 4 kolom. Header dokumen kini memuat token `Spec Version 5.12` serta `App Version 1.0.0`; `ARCHITECTURE.md` memakai token App Version yang sama. Sumber angka versi: `package.json` (`"version"`) dan `Pos.Api.csproj` (`<Version>`), di-inject saat build oleh Vite (`vite.config.ts` → `define.__APP_VERSION__` + `__APP_BUILD__` = 7 karakter commit SHA), lalu diekspos dari `src/utils/constants.ts` (`APP_VERSION`, `formatAppVersion()`). Versi ditampilkan sebagai teks redup `"Versi aplikasi 1.0.0"` di layar masuk, halaman Profil Saya, dan hub Lainnya; file baru `src/vite-env.d.ts` mendeklarasikan kedua konstanta build-time tersebut. Backend: respons `GET /api/health` bertambah field `version` yang dibaca dari assembly yang berjalan; `Pos.Api.csproj` menambah `<Version>1.0.0</Version>` dan `<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>` agar .NET tidak menempelkan akhiran `+<sha>`. Kelas SCSS baru `.appVersion` pada `LoginPage.module.scss`, `ProfilePage.module.scss`, dan `LainnyaPage.module.scss`. Tanpa endpoint baru, tanpa migrasi, tanpa perubahan skema. |
 | 5.11 | September 16, 2026 | — | FR-DSH-013 didokumentasikan sebagai section §13.2 + FR-DSH-015 baru — kartu **Pendapatan** pada Dashboard resmi menjadi tombol yang membuka modal **"Rincian Metode Pembayaran"** (FR-DSH-002 diperbarui; FR-DSH-013 sebelumnya hanya tercatat di baris revisi 5.4 dan belum pernah menjadi requirement tersendiri). Modal kini juga menampilkan **rincian pendapatan per staf untuk setiap metode pembayaran** (owner only): `payment_method_breakdown[]` bertambah field `staff[]` berisi `{ staff_id, staff_name, amount, count }` — hanya transaksi `completed` pada tanggal terpilih, diurutkan `amount` menurun lalu nama staf; untuk kasir/kurir array `staff` selalu kosong (mengikuti pola `staff_revenue` FR-DSH-010) dan daftar per staf tidak dirender. Setiap kartu metode tetap menampilkan total + jumlah transaksi, ditambah baris staf (nama, nominal, jumlah transaksi) dan bar proporsi terhadap total metode tersebut; empty state per metode `"Belum ada transaksi"`. Backend: record baru `PaymentMethodStaffItem` di `Pos.Api/DTOs/Dashboard/`; `PaymentMethodBreakdownItem` bertambah field `Staff`; `DashboardService.GetDashboardAsync` menambah agregasi `GroupBy(PaymentMethod, StaffId)` khusus owner. Frontend: `PaymentMethodStaffItem` + `PaymentMethodBreakdownItem.staff` di `types/index.ts`; `computePaymentMethodBreakdown()` di mock `dashboardService` menerima flag `includeStaff`; `PaymentMethodModal` menerima prop `showStaffBreakdown` dan merender baris staf; kelas SCSS baru (`.cardDivider`, `.staffList`, `.staffTitle`, `.staffRow`, `.staffRowTop`, `.staffName`, `.staffAmount`, `.staffBar`, `.staffBarFill`, `.staffEmpty`); seed QRIS baru pada `mockDb.dashboardStats.recentTransactions`. Tanpa endpoint baru, tanpa migrasi. `payment_method_breakdown[].staff` juga didokumentasikan di API_CONTRACT.md §13. |
 | 5.10 | September 16, 2026 | — | FR-CSH-006 — Pengeluaran Operasional: halaman Arus Kas (owner only) kini dapat mencatat, mengubah, dan menghapus pengeluaran operasional dengan **kategori tetap + deskripsi bebas** (contoh: bensin, iuran, listrik, tutup galon, keperluan kebersihan, gaji karyawan). Tabel baru `Expenses` (`id`, `category`, `description`, `amount`, `expense_date`, `created_by`, `created_at`) dengan enum `ExpenseCategory` disimpan sebagai string (`fuel`, `dues`, `electricity`, `gallon_cap`, `cleaning`, `salary`, `other`); migrasi EF `AddExpensesTable`. Endpoint baru owner-only: `GET /api/expenses?date=YYYY-MM-DD`, `POST /api/expenses`, `PUT /api/expenses/{id}`, `DELETE /api/expenses/{id}`. `CashFlowService` menambah sumber entri keempat — pengeluaran masuk sebagai `flow_type = cash_out` dan `category = operational_expense`, deskripsi entri `"{Label Kategori} - {Deskripsi}"`, dan timestamp entri mengikuti tanggal bisnis (`expense_date`) sehingga pengeluaran yang dicatat mundur tetap muncul pada hari yang benar. Pengeluaran otomatis menambah kartu **Kas Keluar** dan ekspor XLSX bulanan — **tetap 4 kartu ringkasan**, tanpa field baru pada `CashFlowSummary`. Aturan validasi baru: VAL-CSH-001–004. Frontend: `CashFlowPage.tsx` menambah tombol "+ Catat Pengeluaran", modal catat/ubah (dropdown Kategori, Deskripsi, Jumlah, Tanggal), aksi ikon Ubah/Hapus pada baris pengeluaran, dan dialog konfirmasi hapus; file baru `expenseService.ts` + `utils/expenseLabels.ts`; seed `mockDb.expenses`; label kategori `operational_expense` di `cashFlowExport.ts`; kelas SCSS baru (`.headerAction`, `.rowRight`, `.rowActions`, `.iconBtn`, `.iconBtnDanger`, `.formFields`, `.formError`). |
 | 5.9 | September 16, 2026 | — | FR-DSH-014 — Ringkasan Pinjaman Kontainer: new **"Kontainer Pelanggan"** section added to the Dashboard immediately below **"Hutang Pelanggan"** (FR-DSH-009) and above **"Pergerakan Stok"** (FR-DSH-012). It mirrors the container balance list of FR-CON-005 as a **read-only accordion** — one collapsed row per customer showing the name plus a summary `"{N} produk · {M} unit"`, expanding to one row per product with that product's net container balance. The two direction sections of FR-CON-005 are kept: **"Pelanggan memegang kontainer kami"** (net > 0, amber) and **"Kontainer pelanggan ada di kami"** (net < 0, blue). Visible to **all roles store-wide** and **not date-filtered** (current live state, same as FR-DSH-004/009). Active customers only, reversed loans (`is_reversed = true`) excluded, net = 0 pairs omitted, no search input, no row actions, and **no change to the Stock page Kontainer tab** (FR-CON-005/006/007). Backend: new `ContainerLoanSummaryItem` record in `Pos.Api/DTOs/Dashboard/`; `DashboardResponse` gains `container_loans`; `DashboardService.GetDashboardAsync` aggregates `Σ quantity` per customer + product. Frontend: `ContainerLoanSummaryItem` interface + `DashboardStats.containerLoans` in `types/index.ts`; `computeContainerLoanSummary()` helper in the `dashboardService.ts` mock; new `groupContainerLoans()` helper and `ContainerLoanCustomerRow` component added to `DashboardPage.tsx`; new `.containerLoan*` classes in `DashboardPage.module.scss`. No new endpoint and no migration. |
@@ -84,6 +85,35 @@ This document defines the functional requirements for the POS App Phase 1 build.
 ### 1.4 Related Documents
 - [ARCHITECTURE.md](ARCHITECTURE.md) — tech stack, domain model, API endpoints, security, deployment
 - [DESIGN.md](DESIGN.md) — design tokens, component styles, typography, color system
+
+### 1.5 Versioning Policy
+
+The project carries **two independent version numbers**. They answer different questions, live in different places, and follow different bump rules.
+
+| # | Name | Where it lives | Question it answers |
+|---|---|---|---|
+| 1 | **Spec Version** | Header of this document (`Spec Version`) and the Revision History above | *Which revision of the specification is this?* |
+| 2 | **App Version** | `package.json` `"version"`, `Pos.Api.csproj` `<Version>`, `GET /api/health`, and the in-app footer (login screen, `/profile`, `/lainnya`) | *Which release of the software is running?* |
+
+**Spec Version** follows this document's own revision trail (`5.12`, `5.13`, …). It is bumped for **every documented change** — including clarifications and frontend-only tweaks that ship no new release. A major bump (`6.0`) is reserved for a phase boundary: the Phase 1 go-live freeze, or the start of Phase 2 (QRIS gateway integration).
+
+**App Version** is a hand-maintained semantic version declared in `package.json` and mirrored in `Pos.Api.csproj`:
+
+| Segment | Bumped when | Example |
+|---|---|---|
+| MAJOR | A phase boundary, or a change that breaks existing data or clients | Phase 2 QRIS gateway → `2.0.0` |
+| MINOR | A new requirement or feature module ships to users | FR-CSH-006 operational expenses → `1.1.0` |
+| PATCH | Bug fixes, copy/label changes, and UX refinements | `1.0.1` |
+
+Build identity is tracked separately from the App Version. CI builds append the short commit SHA and render it as `1.0.0+abc1234`; local dev builds show the bare version. The Docker image tag `ghcr.io/christianj27/pos-api:1.0.<run_number>` is a **build counter**, not the App Version — `Project/main.bicep` pins it per deployment.
+
+**Mapping** (current release):
+
+| App Version | Spec Version | Date | Scope |
+|---|---|---|---|
+| 1.0.0 | 5.12 | September 16, 2026 | Phase 1 feature-complete — app version declared and surfaced in the UI, `/api/health`, and the docs |
+
+> **Maintenance note:** the Revision History table above keeps its **four columns**. Do not add an App Version column to it — each row must contain exactly five `|` characters (four columns) or the markdown table breaks. Record every new release in the mapping table in this section instead.
 
 ---
 
