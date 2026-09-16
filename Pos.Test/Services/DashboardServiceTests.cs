@@ -155,8 +155,111 @@ public class DashboardServiceTests
         Assert.Contains(result.CustomerDebts, d => d.CustomerId == debtorId && d.OutstandingDebt == 20000m);
     }
 
-    // ── WeeklyChart ────────────────────────────────────────────────────────
+    // ── ContainerLoans — FR-DSH-014 (store-wide, active customers, net != 0) ─
 
+    private void AddContainerLoan(Guid customerId, Guid productId, int quantity, bool isReversed = false)
+    {
+        _db.ContainerLoans.Add(new ContainerLoan
+        {
+            Id = Guid.NewGuid(),
+            CustomerId = customerId,
+            ProductId = productId,
+            Quantity = quantity,
+            CreatedBy = OwnerId,
+            IsReversed = isReversed,
+            CreatedAt = DateTime.UtcNow
+        });
+        _db.SaveChanges();
+    }
+
+    [Fact]
+    public async Task GetDashboard_ContainerLoans_AggregatesNetPerCustomerAndProduct()
+    {
+        AddContainerLoan(CustomerId, ProductId, 10);
+        AddContainerLoan(CustomerId, ProductId, -20);
+
+        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
+        var entry = Assert.Single(result.ContainerLoans);
+
+        Assert.Equal(CustomerId, entry.CustomerId);
+        Assert.Equal("Budi", entry.CustomerName);
+        Assert.Equal(ProductId, entry.ProductId);
+        Assert.Equal("Galon", entry.ProductName);
+        Assert.Equal("galon", entry.ProductUnit);
+        Assert.Equal(-10, entry.NetQuantity);
+    }
+
+    [Fact]
+    public async Task GetDashboard_ContainerLoans_KeepsPositiveAndNegativeNetsSeparately()
+    {
+        var otherProductId = Guid.NewGuid();
+        _db.Products.Add(new Product
+        {
+            Id = otherProductId, Name = "Gas 3kg", Category = ProductCategory.Refillable,
+            ProductionType = ProductionType.Purchased, Type = ProductType.Gas,
+            Unit = "tabung 3kg", BasePrice = 20000m, IsActive = true
+        });
+        _db.SaveChanges();
+
+        AddContainerLoan(CustomerId, ProductId, 7);
+        AddContainerLoan(CustomerId, otherProductId, -4);
+
+        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
+        var entries = result.ContainerLoans.ToList();
+
+        Assert.Equal(2, entries.Count);
+        Assert.Contains(entries, e => e.ProductId == ProductId && e.NetQuantity == 7);
+        Assert.Contains(entries, e => e.ProductId == otherProductId && e.NetQuantity == -4);
+    }
+
+    [Fact]
+    public async Task GetDashboard_ContainerLoans_OmitsZeroNet()
+    {
+        AddContainerLoan(CustomerId, ProductId, 5);
+        AddContainerLoan(CustomerId, ProductId, -5);
+
+        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
+
+        Assert.Empty(result.ContainerLoans);
+    }
+
+    [Fact]
+    public async Task GetDashboard_ContainerLoans_ExcludesReversedLoans()
+    {
+        AddContainerLoan(CustomerId, ProductId, 9, isReversed: true);
+
+        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
+
+        Assert.Empty(result.ContainerLoans);
+    }
+
+    [Fact]
+    public async Task GetDashboard_ContainerLoans_ExcludesInactiveCustomers()
+    {
+        var deletedCustomerId = Guid.NewGuid();
+        _db.Customers.Add(new Customer { Id = deletedCustomerId, Name = "Dihapus", IsActive = false });
+        _db.SaveChanges();
+
+        AddContainerLoan(CustomerId, ProductId, 3);
+        AddContainerLoan(deletedCustomerId, ProductId, 8);
+
+        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
+        var entry = Assert.Single(result.ContainerLoans);
+
+        Assert.Equal(CustomerId, entry.CustomerId);
+    }
+
+    [Fact]
+    public async Task GetDashboard_ContainerLoans_AlwaysStoreWide()
+    {
+        AddContainerLoan(CustomerId, ProductId, 6);
+
+        var result = await _sut.GetDashboardAsync(Today, KurirId, "kurir");
+
+        Assert.Contains(result.ContainerLoans, c => c.CustomerId == CustomerId && c.NetQuantity == 6);
+    }
+
+    // ── WeeklyChart ────────────────────────────────────────────────────────
     [Fact]
     public async Task GetDashboard_WeeklyChart_Returns7Entries()
     {

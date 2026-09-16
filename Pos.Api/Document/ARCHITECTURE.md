@@ -368,6 +368,10 @@ GET    /api/dashboard               -- all authenticated roles; stats scoped to 
                                    --   recent_transactions (for selected date), warehouse_stock (current state, not date-filtered),
                                    --   previous_day_revenue, customer_debts (current state, not date-filtered):
                                    --   customer_debts: [{ customer_id, customer_name, outstanding_debt }] — active customers with debt > 0, sorted by debt desc
+                                   --   container_loans (FR-DSH-014, current state, not date-filtered, store-wide):
+                                   --   [{ customer_id, customer_name, product_id, product_name, product_unit, net_quantity }]
+                                   --   Net = SUM(container_loans.quantity) per customer+product; reversed loans excluded; active customers only; net = 0 omitted.
+                                   --   Positive = customer still holds our containers; negative = we hold the customer's containers.
                                    --   daily_stock_summary: per-product sold/received totals for the date (excludes cancelled/reversed movements);
                                    --   [{ product_id, product_name, product_unit, product_category, total_sold, total_received }]
                                    --   Sold = dispatch (refillable: filled-container qty only; simple: all dispatch qty).

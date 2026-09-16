@@ -59,6 +59,7 @@ public record DashboardResponse(
     IEnumerable<RecentTransactionDashboardItem> RecentTransactions,
     IEnumerable<WarehouseStockItem> WarehouseStock,
     IEnumerable<CustomerDebtSummary> CustomerDebts,
+    IEnumerable<ContainerLoanSummaryItem> ContainerLoans,
     IEnumerable<StaffRevenueSummary> StaffRevenue,
     IEnumerable<DailyStockProductSummary> DailyStockSummary,
     IEnumerable<PaymentMethodBreakdownItem> PaymentMethodBreakdown

@@ -139,6 +139,37 @@ public class DashboardService(AppDbContext db) : IDashboardService
 
         var totalOutstandingDebt = customerDebts.Sum(d => d.OutstandingDebt);
 
+        // Container loan balances (FR-DSH-014) — current state, not date-filtered, store-wide for all roles.
+        // Net = SUM(ContainerLoans.Quantity) per customer + product. Cancelled loans (is_reversed) are excluded
+        // and only active customers are listed (mirrors the activeCustomers filter used by customer debts).
+        var containerLoanRows = await db.ContainerLoans
+            .Where(cl => !cl.IsReversed && cl.Customer.IsActive)
+            .Select(cl => new
+            {
+                cl.CustomerId,
+                CustomerName = cl.Customer.Name,
+                cl.ProductId,
+                ProductName = cl.Product.Name,
+                ProductUnit = cl.Product.Unit,
+                cl.Quantity
+            })
+            .ToListAsync();
+
+        var containerLoans = containerLoanRows
+            .GroupBy(l => new { l.CustomerId, l.CustomerName, l.ProductId, l.ProductName, l.ProductUnit })
+            .Select(g => new ContainerLoanSummaryItem(
+                g.Key.CustomerId,
+                g.Key.CustomerName,
+                g.Key.ProductId,
+                g.Key.ProductName,
+                g.Key.ProductUnit,
+                g.Sum(l => l.Quantity)))
+            .Where(l => l.NetQuantity != 0)
+            .OrderBy(l => l.CustomerName)
+            .ThenByDescending(l => l.NetQuantity)
+            .ThenBy(l => l.ProductName)
+            .ToList();
+
         // Daily stock movement summary (FR-DSH-012) — sold and received per product, excluding cancelled movements
         // Sold:     Dispatch movements. Refillable = filled container qty; Simple = all dispatch qty.
         // Received: Inbound movements (ToLocationId != null && FromLocationId == null).
@@ -213,8 +244,8 @@ public class DashboardService(AppDbContext db) : IDashboardService
         return new DashboardResponse(
             todayRevenue, todayTransactions, todayPurchaseCost, todayDebtCollected,
             lowStockCount, totalOutstandingDebt, prevRevenue,
-            weeklyChart, recentResponses, warehouseStock, customerDebts, staffRevenue, dailyStockSummary,
-            paymentMethodBreakdown);
+            weeklyChart, recentResponses, warehouseStock, customerDebts, containerLoans, staffRevenue,
+            dailyStockSummary, paymentMethodBreakdown);
     }
 
     private async Task<IEnumerable<WarehouseStockItem>> GetWarehouseStockAsync(Guid warehouseId, string locationName)

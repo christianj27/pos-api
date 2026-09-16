@@ -1196,6 +1196,13 @@ _(Record multiple container loans or returns for one customer without a transact
 | `customer_debts[].customer_id` | string (UUID) | — |
 | `customer_debts[].customer_name` | string | — |
 | `customer_debts[].outstanding_debt` | number | — |
+| `container_loans` | array | Net container balance per customer + product (`Σ container_loans.quantity`); excludes reversed loans (`is_reversed=true`); active customers only; pairs with a net of `0` omitted; sorted by customer name (not date-filtered, store-wide for all roles) |
+| `container_loans[].customer_id` | string (UUID) | — |
+| `container_loans[].customer_name` | string | — |
+| `container_loans[].product_id` | string (UUID) | — |
+| `container_loans[].product_name` | string | — |
+| `container_loans[].product_unit` | string | — |
+| `container_loans[].net_quantity` | number | Positive = customer still holds our containers; negative = we hold the customer's containers (owed back as filled containers on the next delivery) |
 | `staff_revenue` | array | Revenue breakdown per staff member for completed transactions on `date`; sorted by revenue descending |
 | `staff_revenue[].staff_id` | string (UUID) | — |
 | `staff_revenue[].staff_name` | string | — |
