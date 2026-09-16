@@ -1291,11 +1291,16 @@ _(Record multiple container loans or returns for one customer without a transact
 | `daily_stock_summary[].product_category` | string | `simple` \| `refillable` |
 | `daily_stock_summary[].total_sold` | number | Units sold via dispatch. Refillable: filled-container dispatch qty only. Simple: all dispatch qty |
 | `daily_stock_summary[].total_received` | number | Units received inbound (`to_location_id != null && from_location_id == null`). Refillable: filled-container inbound qty only. Simple: all inbound qty |
-| `payment_method_breakdown` | array | Revenue breakdown by payment method for completed transactions on `date`. Scoped to caller for kasir/kurir; store-wide for owner. Always contains exactly 3 items (cash, transfer, qris), ordered in that sequence. Items with zero transactions still appear with `amount=0` and `count=0` |
+| `payment_method_breakdown` | array | Revenue breakdown by payment method for completed transactions on `date`. Scoped to caller for kasir/kurir; store-wide for owner. Always contains exactly 3 items (cash, transfer, qris), ordered in that sequence. Items with zero transactions still appear with `amount=0` and `count=0`. Each item also carries a nested `staff` array (FR-DSH-015) |
 | `payment_method_breakdown[].method` | string | `cash` \| `transfer` \| `qris` |
 | `payment_method_breakdown[].label` | string | `Tunai` \| `Transfer` \| `QRIS` (localized label) |
 | `payment_method_breakdown[].amount` | number | Sum of `paid_amount` for completed transactions of this payment method on `date` |
 | `payment_method_breakdown[].count` | number | Count of completed transactions of this payment method on `date` |
+| `payment_method_breakdown[].staff` | array | Per-staff income breakdown for this payment method (FR-DSH-015). **Owner only** — always an empty array for kasir/kurir. Sorted by `amount` descending, then `staff_name` ascending |
+| `payment_method_breakdown[].staff[].staff_id` | string (UUID) | — |
+| `payment_method_breakdown[].staff[].staff_name` | string | — |
+| `payment_method_breakdown[].staff[].amount` | number | Sum of `paid_amount` for completed transactions of this payment method created by this staff member on `date` |
+| `payment_method_breakdown[].staff[].count` | number | Count of completed transactions of this payment method created by this staff member on `date` |
 
 ---
 

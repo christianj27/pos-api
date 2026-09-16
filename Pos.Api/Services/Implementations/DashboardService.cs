@@ -211,16 +211,53 @@ public class DashboardService(AppDbContext db) : IDashboardService
             .OrderBy(s => s.ProductName)
             .ToList();
 
-        // Payment method breakdown (FR-DSH-013) — scoped to userId for non-owners
+        // Payment method breakdown (FR-DSH-013 / FR-DSH-015) — scoped to userId for non-owners.
+        // The nested per-staff breakdown is owner-only: kasir/kurir already see just their own
+        // transactions, so their Staff array stays empty (mirrors the staff_revenue rule of FR-DSH-010).
         var paymentMethodBreakdown = new List<PaymentMethodBreakdownItem>();
         IQueryable<Transaction> paymentQuery = db.Transactions
             .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= start && t.CreatedAt < end);
         if (!isOwner) paymentQuery = paymentQuery.Where(t => t.StaffId == userId);
-        
+
         var paymentAggregates = await paymentQuery
             .GroupBy(t => t.PaymentMethod)
             .Select(g => new { Method = g.Key, Amount = g.Sum(t => t.PaidAmount), Count = g.Count() })
             .ToListAsync();
+
+        // Per-staff aggregation per payment method (owner only)
+        var staffByMethod = new Dictionary<string, List<PaymentMethodStaffItem>>();
+        if (isOwner)
+        {
+            var paymentStaffAggregates = await paymentQuery
+                .GroupBy(t => new { t.PaymentMethod, t.StaffId })
+                .Select(g => new
+                {
+                    g.Key.PaymentMethod,
+                    g.Key.StaffId,
+                    Amount = g.Sum(t => t.PaidAmount),
+                    Count = g.Count()
+                })
+                .ToListAsync();
+
+            var paymentStaffIds = paymentStaffAggregates.Select(a => a.StaffId).Distinct().ToList();
+            var paymentStaffNames = await db.Users
+                .Where(u => paymentStaffIds.Contains(u.Id))
+                .Select(u => new { u.Id, u.Name })
+                .ToDictionaryAsync(u => u.Id, u => u.Name);
+
+            foreach (var group in paymentStaffAggregates.GroupBy(a => a.PaymentMethod.ToString().ToLower()))
+            {
+                staffByMethod[group.Key] = group
+                    .Select(a => new PaymentMethodStaffItem(
+                        a.StaffId,
+                        paymentStaffNames.GetValueOrDefault(a.StaffId, "Unknown"),
+                        a.Amount,
+                        a.Count))
+                    .OrderByDescending(s => s.Amount)
+                    .ThenBy(s => s.StaffName)
+                    .ToList();
+            }
+        }
 
         // Map payment methods to labels and order as: cash, transfer, qris
         var methodLabels = new Dictionary<string, string>
@@ -237,7 +274,8 @@ public class DashboardService(AppDbContext db) : IDashboardService
                 method,
                 methodLabels.GetValueOrDefault(method, method),
                 agg?.Amount ?? 0,
-                agg?.Count ?? 0
+                agg?.Count ?? 0,
+                staffByMethod.GetValueOrDefault(method, [])
             ));
         }
 

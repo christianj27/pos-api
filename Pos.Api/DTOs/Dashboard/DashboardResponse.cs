@@ -1,10 +1,18 @@
 namespace Pos.Api.DTOs.Dashboard;
 
+public record PaymentMethodStaffItem(
+    Guid StaffId,
+    string StaffName,
+    decimal Amount,
+    int Count
+);
+
 public record PaymentMethodBreakdownItem(
     string Method,
     string Label,
     decimal Amount,
-    int Count
+    int Count,
+    IEnumerable<PaymentMethodStaffItem> Staff
 );
 
 public record RecentTransactionDashboardItem(

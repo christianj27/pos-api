@@ -399,9 +399,10 @@ GET    /api/dashboard               -- all authenticated roles; stats scoped to 
                                    --   [{ product_id, product_name, product_unit, product_category, total_sold, total_received }]
                                    --   Sold = dispatch (refillable: filled-container qty only; simple: all dispatch qty).
                                    --   Received = inbound (to_location_id != null && from_location_id == null); refillable: filled-container qty only; simple: all inbound qty.
-                                   --   payment_method_breakdown: [{ method: 'cash'|'transfer'|'qris', label: 'Tunai'|'Transfer'|'QRIS', amount, count }]
+                                   --   payment_method_breakdown: [{ method: 'cash'|'transfer'|'qris', label: 'Tunai'|'Transfer'|'QRIS', amount, count, staff: [{ staff_id, staff_name, amount, count }] }]
                                    --   Revenue per payment method for completed transactions on date; scoped to caller for kasir/kurir.
                                    --   Always contains 3 items ordered [cash, transfer, qris]; zero-transaction methods show amount=0, count=0.
+                                   --   staff[] (FR-DSH-015) is owner-only: sorted by amount desc then staff_name; always empty for kasir/kurir.
 ```
 
 ---
