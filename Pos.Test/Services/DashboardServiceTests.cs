@@ -1,5 +1,6 @@
 using Pos.Api.Data;
 using Pos.Api.Data.Enums;
+using Pos.Api.DTOs.Dashboard;
 using Pos.Api.Models;
 using Pos.Api.Services.Implementations;
 using Pos.Test.Helpers;
@@ -348,10 +349,44 @@ public class DashboardServiceTests
             Assert.True(recent[i].CreatedAt >= recent[i + 1].CreatedAt);
     }
 
-    // ── DailyStockSummary — FR-DSH-012 ────────────────────────────────────
+    // ── Stock summary — FR-DSH-012 ("Pergerakan Stok", period-filtered) ──
+
+    /// <summary>Wednesday, so the containing calendar week is 2026-03-16 .. 2026-03-22.</summary>
+    private static readonly DateOnly SummaryAnchor = new(2026, 3, 18);
+
+    private static string Iso(DateOnly date) => date.ToString("yyyy-MM-dd");
+
+    /// <summary>A UTC timestamp that falls at noon WIB on the given date.</summary>
+    private static DateTime WibNoon(DateOnly date) =>
+        Pos.Api.Services.WibTimeZone.GetUtcDayBounds(date).Start.AddHours(5);
+
+    private void AddSummaryMovement(
+        Guid productId, DateOnly date, MovementType type, ContainerStatus status, int quantity,
+        bool isReversed = false, bool isReversal = false)
+    {
+        _db.StockMovements.Add(new StockMovement
+        {
+            Id = Guid.NewGuid(), ProductId = productId,
+            MovementType = type, ContainerStatus = status, Quantity = quantity,
+            FromLocationId = type == MovementType.Dispatch ? WarehouseId : null,
+            ToLocationId   = type == MovementType.Dispatch ? null : WarehouseId,
+            IsReversed = isReversed, IsReversal = isReversal,
+            CreatedBy = KurirId, CreatedAt = WibNoon(date)
+        });
+        _db.SaveChanges();
+    }
+
+    /// <summary>Resolves a preset through the production resolver, then loads its summary.</summary>
+    private async Task<StockMovementSummaryResponse> GetSummaryAsync(string period, DateOnly anchor)
+    {
+        var resolved = Pos.Api.Services.StockPeriodRange.TryResolve(
+            period, anchor, null, null, out var normalized, out var start, out var end, out var error);
+        Assert.True(resolved, error);
+        return await _sut.GetStockSummaryAsync(normalized, start, end);
+    }
 
     [Fact]
-    public async Task GetDashboard_DailyStockSummary_SimpleProduct_DispatchCountsAsSold()
+    public async Task GetStockSummary_SimpleProduct_DispatchCountsAsSold()
     {
         var simpleProductId = Guid.NewGuid();
         _db.Products.Add(new Product
@@ -359,24 +394,18 @@ public class DashboardServiceTests
             Id = simpleProductId, Name = "Aqua", Category = ProductCategory.Simple,
             Type = ProductType.Air, Unit = "karton", BasePrice = 30000m, IsActive = true
         });
-        _db.StockMovements.Add(new StockMovement
-        {
-            Id = Guid.NewGuid(), ProductId = simpleProductId,
-            MovementType = MovementType.Dispatch, ContainerStatus = ContainerStatus.Na,
-            Quantity = 5, FromLocationId = WarehouseId,
-            CreatedBy = KasirId, CreatedAt = DateTime.UtcNow
-        });
         _db.SaveChanges();
+        AddSummaryMovement(simpleProductId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Na, 5);
 
-        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
-        var entry = result.DailyStockSummary.Single(s => s.ProductId == simpleProductId);
+        var result = await GetSummaryAsync("day", SummaryAnchor);
+        var entry = result.Items.Single(s => s.ProductId == simpleProductId);
 
         Assert.Equal(5, entry.TotalSold);
         Assert.Equal(0, entry.TotalReceived);
     }
 
     [Fact]
-    public async Task GetDashboard_DailyStockSummary_SimpleProduct_InboundCountsAsReceived()
+    public async Task GetStockSummary_SimpleProduct_InboundCountsAsReceived()
     {
         var simpleProductId = Guid.NewGuid();
         _db.Products.Add(new Product
@@ -384,116 +413,208 @@ public class DashboardServiceTests
             Id = simpleProductId, Name = "Aqua", Category = ProductCategory.Simple,
             Type = ProductType.Air, Unit = "karton", BasePrice = 30000m, IsActive = true
         });
-        _db.StockMovements.Add(new StockMovement
-        {
-            Id = Guid.NewGuid(), ProductId = simpleProductId,
-            MovementType = MovementType.Receive, ContainerStatus = ContainerStatus.Na,
-            Quantity = 10, ToLocationId = WarehouseId,
-            CreatedBy = OwnerId, CreatedAt = DateTime.UtcNow
-        });
         _db.SaveChanges();
+        AddSummaryMovement(simpleProductId, SummaryAnchor, MovementType.Receive, ContainerStatus.Na, 10);
 
-        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
-        var entry = result.DailyStockSummary.Single(s => s.ProductId == simpleProductId);
+        var result = await GetSummaryAsync("day", SummaryAnchor);
+        var entry = result.Items.Single(s => s.ProductId == simpleProductId);
 
         Assert.Equal(10, entry.TotalReceived);
         Assert.Equal(0, entry.TotalSold);
     }
 
     [Fact]
-    public async Task GetDashboard_DailyStockSummary_RefillableProduct_DispatchFilledCountsAsSold()
+    public async Task GetStockSummary_RefillableProduct_DispatchFilledCountsAsSold()
     {
         // Dispatch + filled container = sold (filled units delivered to customer)
-        _db.StockMovements.Add(new StockMovement
-        {
-            Id = Guid.NewGuid(), ProductId = ProductId,
-            MovementType = MovementType.Dispatch, ContainerStatus = ContainerStatus.Filled,
-            Quantity = 3, FromLocationId = WarehouseId,
-            CreatedBy = KurirId, CreatedAt = DateTime.UtcNow
-        });
-        _db.SaveChanges();
+        AddSummaryMovement(ProductId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Filled, 3);
 
-        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
-        var entry = result.DailyStockSummary.Single(s => s.ProductId == ProductId);
+        var result = await GetSummaryAsync("day", SummaryAnchor);
+        var entry = result.Items.Single(s => s.ProductId == ProductId);
 
         Assert.Equal(3, entry.TotalSold);
         Assert.Equal(0, entry.TotalReceived);
     }
 
     [Fact]
-    public async Task GetDashboard_DailyStockSummary_RefillableProduct_DispatchEmptyNotCountedAsSold()
+    public async Task GetStockSummary_RefillableProduct_DispatchEmptyNotCountedAsSold()
     {
         // Dispatch + empty container does NOT count as sold
-        _db.StockMovements.Add(new StockMovement
-        {
-            Id = Guid.NewGuid(), ProductId = ProductId,
-            MovementType = MovementType.Dispatch, ContainerStatus = ContainerStatus.Empty,
-            Quantity = 2, FromLocationId = WarehouseId,
-            CreatedBy = KurirId, CreatedAt = DateTime.UtcNow
-        });
-        _db.SaveChanges();
+        AddSummaryMovement(ProductId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Empty, 2);
 
-        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
-        var entry = result.DailyStockSummary.FirstOrDefault(s => s.ProductId == ProductId);
+        var result = await GetSummaryAsync("day", SummaryAnchor);
 
         // No sold/received activity → product is filtered out
-        Assert.Null(entry);
+        Assert.Empty(result.Items);
     }
 
     [Fact]
-    public async Task GetDashboard_DailyStockSummary_RefillableProduct_InboundFilledCountsAsReceived()
+    public async Task GetStockSummary_RefillableProduct_InboundFilledCountsAsReceived()
     {
-        _db.StockMovements.Add(new StockMovement
-        {
-            Id = Guid.NewGuid(), ProductId = ProductId,
-            MovementType = MovementType.Receive, ContainerStatus = ContainerStatus.Filled,
-            Quantity = 7, ToLocationId = WarehouseId,
-            CreatedBy = OwnerId, CreatedAt = DateTime.UtcNow
-        });
-        _db.SaveChanges();
+        AddSummaryMovement(ProductId, SummaryAnchor, MovementType.Receive, ContainerStatus.Filled, 7);
 
-        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
-        var entry = result.DailyStockSummary.Single(s => s.ProductId == ProductId);
+        var result = await GetSummaryAsync("day", SummaryAnchor);
+        var entry = result.Items.Single(s => s.ProductId == ProductId);
 
         Assert.Equal(7, entry.TotalReceived);
         Assert.Equal(0, entry.TotalSold);
     }
 
     [Fact]
-    public async Task GetDashboard_DailyStockSummary_RefillableProduct_InboundEmptyNotCountedAsReceived()
+    public async Task GetStockSummary_RefillableProduct_InboundEmptyNotCountedAsReceived()
     {
         // Inbound + empty container does NOT count as received
-        _db.StockMovements.Add(new StockMovement
-        {
-            Id = Guid.NewGuid(), ProductId = ProductId,
-            MovementType = MovementType.Receive, ContainerStatus = ContainerStatus.Empty,
-            Quantity = 4, ToLocationId = WarehouseId,
-            CreatedBy = OwnerId, CreatedAt = DateTime.UtcNow
-        });
-        _db.SaveChanges();
+        AddSummaryMovement(ProductId, SummaryAnchor, MovementType.Receive, ContainerStatus.Empty, 4);
 
-        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
-        var entry = result.DailyStockSummary.FirstOrDefault(s => s.ProductId == ProductId);
+        var result = await GetSummaryAsync("day", SummaryAnchor);
 
-        Assert.Null(entry);
+        Assert.Empty(result.Items);
     }
 
     [Fact]
-    public async Task GetDashboard_DailyStockSummary_ReversedMovement_Excluded()
+    public async Task GetStockSummary_ReversedMovement_Excluded()
     {
-        _db.StockMovements.Add(new StockMovement
-        {
-            Id = Guid.NewGuid(), ProductId = ProductId,
-            MovementType = MovementType.Dispatch, ContainerStatus = ContainerStatus.Filled,
-            Quantity = 5, FromLocationId = WarehouseId,
-            IsReversed = true,
-            CreatedBy = KurirId, CreatedAt = DateTime.UtcNow
-        });
+        AddSummaryMovement(ProductId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Filled, 5,
+            isReversed: true);
+
+        var result = await GetSummaryAsync("day", SummaryAnchor);
+
+        Assert.Empty(result.Items);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_ReversalEntry_Excluded()
+    {
+        AddSummaryMovement(ProductId, SummaryAnchor, MovementType.Receive, ContainerStatus.Filled, 5,
+            isReversal: true);
+
+        var result = await GetSummaryAsync("day", SummaryAnchor);
+
+        Assert.Empty(result.Items);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_DayPeriod_IncludesOnlyAnchorDay()
+    {
+        AddSummaryMovement(ProductId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Filled, 3);
+        AddSummaryMovement(ProductId, SummaryAnchor.AddDays(-1), MovementType.Dispatch, ContainerStatus.Filled, 99);
+
+        var result = await GetSummaryAsync("day", SummaryAnchor);
+
+        Assert.Equal("day", result.Period);
+        Assert.Equal(Iso(SummaryAnchor), result.StartDate);
+        Assert.Equal(Iso(SummaryAnchor), result.EndDate);
+        Assert.Equal(3, Assert.Single(result.Items).TotalSold);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_WeekPeriod_SpansMondayToSunday()
+    {
+        AddSummaryMovement(ProductId, new DateOnly(2026, 3, 16), MovementType.Dispatch, ContainerStatus.Filled, 2); // Monday
+        AddSummaryMovement(ProductId, new DateOnly(2026, 3, 22), MovementType.Dispatch, ContainerStatus.Filled, 3); // Sunday
+        AddSummaryMovement(ProductId, new DateOnly(2026, 3, 15), MovementType.Dispatch, ContainerStatus.Filled, 50); // Sunday before
+        AddSummaryMovement(ProductId, new DateOnly(2026, 3, 23), MovementType.Dispatch, ContainerStatus.Filled, 60); // Monday after
+
+        var result = await GetSummaryAsync("week", SummaryAnchor);
+
+        Assert.Equal("2026-03-16", result.StartDate);
+        Assert.Equal("2026-03-22", result.EndDate);
+        Assert.Equal(5, Assert.Single(result.Items).TotalSold);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_MonthPeriod_SpansCalendarMonth()
+    {
+        AddSummaryMovement(ProductId, new DateOnly(2026, 3, 1), MovementType.Dispatch, ContainerStatus.Filled, 4);
+        AddSummaryMovement(ProductId, new DateOnly(2026, 3, 31), MovementType.Dispatch, ContainerStatus.Filled, 6);
+        AddSummaryMovement(ProductId, new DateOnly(2026, 2, 28), MovementType.Dispatch, ContainerStatus.Filled, 40);
+        AddSummaryMovement(ProductId, new DateOnly(2026, 4, 1), MovementType.Dispatch, ContainerStatus.Filled, 60);
+
+        var result = await GetSummaryAsync("month", SummaryAnchor);
+
+        Assert.Equal("2026-03-01", result.StartDate);
+        Assert.Equal("2026-03-31", result.EndDate);
+        Assert.Equal(10, Assert.Single(result.Items).TotalSold);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_YearPeriod_SpansCalendarYear()
+    {
+        AddSummaryMovement(ProductId, new DateOnly(2026, 1, 1), MovementType.Dispatch, ContainerStatus.Filled, 1);
+        AddSummaryMovement(ProductId, new DateOnly(2026, 12, 31), MovementType.Dispatch, ContainerStatus.Filled, 2);
+        AddSummaryMovement(ProductId, new DateOnly(2025, 12, 31), MovementType.Dispatch, ContainerStatus.Filled, 30);
+        AddSummaryMovement(ProductId, new DateOnly(2027, 1, 1), MovementType.Dispatch, ContainerStatus.Filled, 40);
+
+        var result = await GetSummaryAsync("year", SummaryAnchor);
+
+        Assert.Equal("2026-01-01", result.StartDate);
+        Assert.Equal("2026-12-31", result.EndDate);
+        Assert.Equal(3, Assert.Single(result.Items).TotalSold);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_CustomRange_UsesSuppliedBoundsInclusive()
+    {
+        AddSummaryMovement(ProductId, new DateOnly(2026, 3, 10), MovementType.Dispatch, ContainerStatus.Filled, 2);
+        AddSummaryMovement(ProductId, new DateOnly(2026, 3, 20), MovementType.Dispatch, ContainerStatus.Filled, 3);
+        AddSummaryMovement(ProductId, new DateOnly(2026, 3, 21), MovementType.Dispatch, ContainerStatus.Filled, 70);
+
+        var result = await _sut.GetStockSummaryAsync(
+            "custom", new DateOnly(2026, 3, 10), new DateOnly(2026, 3, 20));
+
+        Assert.Equal("custom", result.Period);
+        Assert.Equal("2026-03-10", result.StartDate);
+        Assert.Equal("2026-03-20", result.EndDate);
+        Assert.Equal(5, Assert.Single(result.Items).TotalSold);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_MultiDayRange_AggregatesSoldAndReceived()
+    {
+        AddSummaryMovement(ProductId, new DateOnly(2026, 3, 1), MovementType.Dispatch, ContainerStatus.Filled, 4);
+        AddSummaryMovement(ProductId, new DateOnly(2026, 3, 31), MovementType.Dispatch, ContainerStatus.Filled, 6);
+        AddSummaryMovement(ProductId, new DateOnly(2026, 3, 15), MovementType.Receive, ContainerStatus.Filled, 50);
+
+        var result = await GetSummaryAsync("month", SummaryAnchor);
+
+        var entry = Assert.Single(result.Items);
+        Assert.Equal(10, entry.TotalSold);
+        Assert.Equal(50, entry.TotalReceived);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_NoActivityInRange_ReturnsEmptyItems()
+    {
+        AddSummaryMovement(ProductId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Filled, 3);
+
+        var result = await _sut.GetStockSummaryAsync(
+            "custom", new DateOnly(2025, 1, 1), new DateOnly(2025, 1, 31));
+
+        Assert.Empty(result.Items);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_SortedByProductName()
+    {
+        var alphaId = Guid.NewGuid();
+        var zebraId = Guid.NewGuid();
+        _db.Products.AddRange(
+            new Product
+            {
+                Id = zebraId, Name = "Zebra", Category = ProductCategory.Simple,
+                Type = ProductType.Air, Unit = "karton", BasePrice = 1000m, IsActive = true
+            },
+            new Product
+            {
+                Id = alphaId, Name = "Alpha", Category = ProductCategory.Simple,
+                Type = ProductType.Air, Unit = "karton", BasePrice = 1000m, IsActive = true
+            });
         _db.SaveChanges();
+        AddSummaryMovement(zebraId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Na, 1);
+        AddSummaryMovement(alphaId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Na, 1);
 
-        var result = await _sut.GetDashboardAsync(Today, OwnerId, "owner");
-        var entry = result.DailyStockSummary.FirstOrDefault(s => s.ProductId == ProductId);
+        var result = await GetSummaryAsync("day", SummaryAnchor);
 
-        Assert.Null(entry);
+        Assert.Equal(new[] { "Alpha", "Zebra" }, result.Items.Select(i => i.ProductName));
     }
 }

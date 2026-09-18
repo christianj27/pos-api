@@ -19,4 +19,24 @@ public class DashboardController(IDashboardService dashboardService) : Controlle
         var target = date ?? WibTimeZone.TodayWib();
         return Ok(await dashboardService.GetDashboardAsync(target, userId, role));
     }
+
+    /// <summary>
+    /// FR-DSH-012 "Pergerakan Stok" — period-filtered summary for this Dashboard section only.
+    /// Every other dashboard section keeps using <see cref="GetDashboard"/> and its single-date filter.
+    /// </summary>
+    [HttpGet("stock-summary")]
+    public async Task<IActionResult> GetStockSummary(
+        [FromQuery] string? period,
+        [FromQuery] DateOnly? date,
+        [FromQuery(Name = "start_date")] DateOnly? startDate,
+        [FromQuery(Name = "end_date")] DateOnly? endDate)
+    {
+        var anchor = date ?? WibTimeZone.TodayWib();
+
+        if (!StockPeriodRange.TryResolve(period, anchor, startDate, endDate,
+                out var normalizedPeriod, out var rangeStart, out var rangeEnd, out var error))
+            return BadRequest(new { message = error });
+
+        return Ok(await dashboardService.GetStockSummaryAsync(normalizedPeriod, rangeStart, rangeEnd));
+    }
 }

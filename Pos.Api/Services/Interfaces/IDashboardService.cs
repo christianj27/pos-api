@@ -5,4 +5,7 @@ namespace Pos.Api.Services.Interfaces;
 public interface IDashboardService
 {
     Task<DashboardResponse> GetDashboardAsync(DateOnly date, Guid userId, string role);
+
+    /// <summary>FR-DSH-012 "Pergerakan Stok" summary for an inclusive WIB date range (all roles, store-wide).</summary>
+    Task<StockMovementSummaryResponse> GetStockSummaryAsync(string period, DateOnly rangeStart, DateOnly rangeEnd);
 }

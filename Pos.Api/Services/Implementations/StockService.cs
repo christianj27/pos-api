@@ -62,10 +62,16 @@ public class StockService(AppDbContext db) : IStockService
         return results;
     }
 
-    public async Task<IEnumerable<StockMovementResponse>> GetMovementsAsync(DateOnly? date, string role)
+    public async Task<IEnumerable<StockMovementResponse>> GetMovementsAsync(
+        DateOnly? date, string role, DateOnly? startDate = null, DateOnly? endDate = null, Guid? productId = null)
     {
-        var filter = date ?? WibTimeZone.TodayWib();
-        var (start, end) = WibTimeZone.GetUtcDayBounds(filter);
+        // Range wins when both bounds are supplied (mirrors the cash-flow start_date/end_date convention);
+        // otherwise the single-day filter is used, defaulting to today WIB.
+        var useRange   = startDate.HasValue && endDate.HasValue;
+        var rangeStart = useRange ? startDate!.Value : date ?? WibTimeZone.TodayWib();
+        var rangeEnd   = useRange ? endDate!.Value   : rangeStart;
+        var (start, _) = WibTimeZone.GetUtcDayBounds(rangeStart);
+        var (_, end)   = WibTimeZone.GetUtcDayBounds(rangeEnd);
 
         var q = db.StockMovements
             .Include(m => m.Product)
@@ -73,10 +79,12 @@ public class StockService(AppDbContext db) : IStockService
             .Include(m => m.ToLocation)
             .Include(m => m.Creator)
             .Include(m => m.Transaction!).ThenInclude(t => t.Customer)
-            .Where(m => m.CreatedAt >= start && m.CreatedAt < end)
-            .OrderByDescending(m => m.CreatedAt);
+            .Where(m => m.CreatedAt >= start && m.CreatedAt < end);
 
-        var movements = await q.ToListAsync();
+        if (productId.HasValue)
+            q = q.Where(m => m.ProductId == productId.Value);
+
+        var movements = await q.OrderByDescending(m => m.CreatedAt).ToListAsync();
 
         return movements.Select(m =>
         {

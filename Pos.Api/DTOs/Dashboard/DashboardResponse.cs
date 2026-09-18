@@ -46,7 +46,7 @@ public record StaffRevenueSummary(
     int TransactionCount
 );
 
-public record DailyStockProductSummary(
+public record StockProductSummary(
     Guid ProductId,
     string ProductName,
     string ProductUnit,
@@ -69,6 +69,5 @@ public record DashboardResponse(
     IEnumerable<CustomerDebtSummary> CustomerDebts,
     IEnumerable<ContainerLoanSummaryItem> ContainerLoans,
     IEnumerable<StaffRevenueSummary> StaffRevenue,
-    IEnumerable<DailyStockProductSummary> DailyStockSummary,
     IEnumerable<PaymentMethodBreakdownItem> PaymentMethodBreakdown
 );

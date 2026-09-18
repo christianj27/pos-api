@@ -542,7 +542,10 @@ Returns aggregated (net) container balances per product, not a raw event log.
 **Query Params**
 | Param | Type | Required | Notes |
 |---|---|---|---|
-| `date` | string (YYYY-MM-DD) | ❌ | WIB date filter; defaults to today WIB |
+| `date` | string (YYYY-MM-DD) | ❌ | WIB date filter; defaults to today WIB. Ignored when `start_date` and `end_date` are both supplied |
+| `start_date` | string (YYYY-MM-DD) | ❌ | Inclusive range start (FR-DSH-012 detail modal). Takes effect only together with `end_date` |
+| `end_date` | string (YYYY-MM-DD) | ❌ | Inclusive range end. Returns `400` when earlier than `start_date` |
+| `product_id` | string (UUID) | ❌ | Restricts the result to a single product |
 
 **Response `200`** — array of StockMovement objects (sorted newest first).
 
@@ -1241,7 +1244,7 @@ _(Record multiple container loans or returns for one customer without a transact
 **Query Params**
 | Param | Type | Required | Notes |
 |---|---|---|---|
-| `date` | string (YYYY-MM-DD) | ❌ | Selected date for day-specific stats; defaults to today WIB |
+| `date` | string (YYYY-MM-DD) | ❌ | Selected date for day-specific stats; defaults to today WIB. Does not affect the "Pergerakan Stok" section, which has its own period endpoint (FR-DSH-012) |
 
 **Response `200`**
 | Field | Type | Notes |
@@ -1284,13 +1287,6 @@ _(Record multiple container loans or returns for one customer without a transact
 | `staff_revenue[].staff_name` | string | — |
 | `staff_revenue[].revenue` | number | Sum of `paid_amount` for completed transactions created by this staff member on `date` |
 | `staff_revenue[].transaction_count` | number | Count of completed transactions created by this staff member on `date` |
-| `daily_stock_summary` | array | Per-product sold/received totals for `date`; excludes cancelled movements (`is_reversed=true` and `is_reversal=true`); products with zero activity omitted; all roles, store-wide |
-| `daily_stock_summary[].product_id` | string (UUID) | — |
-| `daily_stock_summary[].product_name` | string | — |
-| `daily_stock_summary[].product_unit` | string | — |
-| `daily_stock_summary[].product_category` | string | `simple` \| `refillable` |
-| `daily_stock_summary[].total_sold` | number | Units sold via dispatch. Refillable: filled-container dispatch qty only. Simple: all dispatch qty |
-| `daily_stock_summary[].total_received` | number | Units received inbound (`to_location_id != null && from_location_id == null`). Refillable: filled-container inbound qty only. Simple: all inbound qty |
 | `payment_method_breakdown` | array | Revenue breakdown by payment method for completed transactions on `date`. Scoped to caller for kasir/kurir; store-wide for owner. Always contains exactly 3 items (cash, transfer, qris), ordered in that sequence. Items with zero transactions still appear with `amount=0` and `count=0`. Each item also carries a nested `staff` array (FR-DSH-015) |
 | `payment_method_breakdown[].method` | string | `cash` \| `transfer` \| `qris` |
 | `payment_method_breakdown[].label` | string | `Tunai` \| `Transfer` \| `QRIS` (localized label) |
@@ -1301,6 +1297,48 @@ _(Record multiple container loans or returns for one customer without a transact
 | `payment_method_breakdown[].staff[].staff_name` | string | — |
 | `payment_method_breakdown[].staff[].amount` | number | Sum of `paid_amount` for completed transactions of this payment method created by this staff member on `date` |
 | `payment_method_breakdown[].staff[].count` | number | Count of completed transactions of this payment method created by this staff member on `date` |
+
+---
+
+### GET /api/dashboard/stock-summary
+**Auth**: All authenticated roles (owner, kasir, kurir). Store-wide — not user-scoped.
+
+FR-DSH-012 — the "Pergerakan Stok" section's own period filter. Every other dashboard section keeps using `GET /api/dashboard` with its single `date` filter, so changing the period never refetches (or alters) the rest of the dashboard.
+
+**Query Params**
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `period` | string | ❌ | `day` \| `week` \| `month` \| `year` \| `custom`; defaults to `day`, or to `custom` when both range bounds are supplied. Any other value → `400` |
+| `date` | string (YYYY-MM-DD) | ❌ | Anchor date for `day`, `week`, `month` and `year`; defaults to today WIB. Ignored for `custom` |
+| `start_date` | string (YYYY-MM-DD) | ✅ for `custom` | Inclusive range start |
+| `end_date` | string (YYYY-MM-DD) | ✅ for `custom` | Inclusive range end; must be on or after `start_date` and not in the future |
+
+**Resolved ranges (WIB, inclusive)**
+| `period` | Range |
+|---|---|
+| `day` | `date` |
+| `week` | Calendar week, Monday–Sunday, containing `date` |
+| `month` | Calendar month containing `date` (1st → last day) |
+| `year` | Calendar year containing `date` (1 Jan → 31 Dec) |
+| `custom` | `start_date` through `end_date` |
+
+**Response `200`**
+| Field | Type | Notes |
+|---|---|---|
+| `period` | string | Echo of the resolved period: `day` \| `week` \| `month` \| `year` \| `custom` |
+| `start_date` | string (YYYY-MM-DD) | Resolved inclusive range start |
+| `end_date` | string (YYYY-MM-DD) | Resolved inclusive range end |
+| `items` | array | One entry per product with activity in the range; sorted alphabetically by `product_name`; empty when there is none |
+| `items[].product_id` | string (UUID) | — |
+| `items[].product_name` | string | — |
+| `items[].product_unit` | string | — |
+| `items[].product_category` | string | `simple` \| `refillable` |
+| `items[].total_sold` | number | Units sold via dispatch. Refillable: filled-container dispatch qty only. Simple: all dispatch qty |
+| `items[].total_received` | number | Units received inbound (`to_location_id != null && from_location_id == null`). Refillable: filled-container inbound qty only. Simple: all inbound qty |
+
+Cancelled movements (`is_reversed=true` or `is_reversal=true`) are excluded, and products with zero activity in both directions are omitted.
+
+**Response `400`** — `{ message }` with one of: `"Periode tidak valid."`, `"Tanggal mulai dan tanggal selesai wajib diisi."`, `"Tanggal mulai harus sebelum atau sama dengan tanggal selesai."`, `"Tanggal tidak boleh di masa depan."`
 
 ---
 

@@ -16,10 +16,18 @@ public class StockController(IStockService stockService) : ControllerBase
         Ok(await stockService.GetLevelsAsync(locationId));
 
     [HttpGet("movements")]
-    public async Task<IActionResult> GetMovements([FromQuery] DateOnly? date)
+    public async Task<IActionResult> GetMovements(
+        [FromQuery] DateOnly? date,
+        [FromQuery(Name = "start_date")] DateOnly? startDate,
+        [FromQuery(Name = "end_date")] DateOnly? endDate,
+        [FromQuery(Name = "product_id")] Guid? productId)
     {
+        // Range filter wins when both bounds are supplied; otherwise `date` (default today WIB) applies.
+        if (startDate.HasValue && endDate.HasValue && startDate > endDate)
+            return BadRequest(new { message = "Tanggal mulai harus sebelum atau sama dengan tanggal selesai." });
+
         var role = User.FindFirstValue(ClaimTypes.Role) ?? "kasir";
-        return Ok(await stockService.GetMovementsAsync(date, role));
+        return Ok(await stockService.GetMovementsAsync(date, role, startDate, endDate, productId));
     }
 
     [HttpPost("movements")]

@@ -186,6 +186,60 @@ public class StockServiceTests
         Assert.NotEmpty(movements);
     }
 
+    [Fact]
+    public async Task GetMovements_RangeFilter_ReturnsOnlyMovementsInRange()
+    {
+        var today = Pos.Api.Services.WibTimeZone.TodayWib();
+
+        var inRange = (await _sut.GetMovementsAsync(null, "owner", today.AddDays(-6), today)).ToList();
+        var outOfRange = (await _sut.GetMovementsAsync(null, "owner", today.AddDays(-10), today.AddDays(-8))).ToList();
+
+        Assert.NotEmpty(inRange);
+        Assert.Empty(outOfRange);
+    }
+
+    [Fact]
+    public async Task GetMovements_RangeFilter_WinsOverDate()
+    {
+        var today = Pos.Api.Services.WibTimeZone.TodayWib();
+
+        // An explicit `date` of today is ignored because both range bounds are supplied
+        var movements = (await _sut.GetMovementsAsync(today, "owner", today.AddDays(-10), today.AddDays(-8))).ToList();
+
+        Assert.Empty(movements);
+    }
+
+    [Fact]
+    public async Task GetMovements_PartialRange_FallsBackToSingleDay()
+    {
+        var today = Pos.Api.Services.WibTimeZone.TodayWib();
+
+        // A start bound without an end bound is ignored → the `date` filter applies
+        var movements = (await _sut.GetMovementsAsync(today, "owner", startDate: today.AddDays(-10))).ToList();
+
+        Assert.NotEmpty(movements);
+    }
+
+    [Fact]
+    public async Task GetMovements_ProductFilter_ReturnsOnlyThatProduct()
+    {
+        var movements = (await _sut.GetMovementsAsync(null, "owner", null, null, SimpleProductId)).ToList();
+
+        Assert.Equal(2, movements.Count);
+        Assert.All(movements, m => Assert.Equal(SimpleProductId, m.ProductId));
+    }
+
+    [Fact]
+    public async Task GetMovements_ProductFilter_CombinedWithRange()
+    {
+        var today = Pos.Api.Services.WibTimeZone.TodayWib();
+
+        var movements = (await _sut.GetMovementsAsync(null, "owner", today, today, SimpleProductId)).ToList();
+
+        Assert.Equal(2, movements.Count);
+        Assert.All(movements, m => Assert.Equal(SimpleProductId, m.ProductId));
+    }
+
     // ── CreateMovement ─────────────────────────────────────────────────────
 
     [Fact]

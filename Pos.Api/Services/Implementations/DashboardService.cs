@@ -170,47 +170,6 @@ public class DashboardService(AppDbContext db) : IDashboardService
             .ThenBy(l => l.ProductName)
             .ToList();
 
-        // Daily stock movement summary (FR-DSH-012) — sold and received per product, excluding cancelled movements
-        // Sold:     Dispatch movements. Refillable = filled container qty; Simple = all dispatch qty.
-        // Received: Inbound movements (ToLocationId != null && FromLocationId == null).
-        //           Refillable = filled container qty only; Simple = all inbound qty.
-        var dayMovements = await db.StockMovements
-            .Include(m => m.Product)
-            .Where(m => m.CreatedAt >= start && m.CreatedAt < end && !m.IsReversed && !m.IsReversal)
-            .ToListAsync();
-
-        var dailyStockSummary = dayMovements
-            .GroupBy(m => new { m.ProductId, m.Product.Name, m.Product.Unit, m.Product.Category })
-            .Select(pg =>
-            {
-                var isRefillable = pg.Key.Category == ProductCategory.Refillable;
-
-                var totalSold = isRefillable
-                    ? pg.Where(m => m.MovementType == MovementType.Dispatch
-                                 && m.ContainerStatus == ContainerStatus.Filled)
-                         .Sum(m => m.Quantity)
-                    : pg.Where(m => m.MovementType == MovementType.Dispatch)
-                         .Sum(m => m.Quantity);
-
-                var totalReceived = isRefillable
-                    ? pg.Where(m => m.ToLocationId != null && m.FromLocationId == null
-                                 && m.ContainerStatus == ContainerStatus.Filled)
-                         .Sum(m => m.Quantity)
-                    : pg.Where(m => m.ToLocationId != null && m.FromLocationId == null)
-                         .Sum(m => m.Quantity);
-
-                return new DailyStockProductSummary(
-                    pg.Key.ProductId,
-                    pg.Key.Name,
-                    pg.Key.Unit,
-                    pg.Key.Category.ToString().ToLower(),
-                    totalReceived,
-                    totalSold);
-            })
-            .Where(s => s.TotalReceived > 0 || s.TotalSold > 0)
-            .OrderBy(s => s.ProductName)
-            .ToList();
-
         // Payment method breakdown (FR-DSH-013 / FR-DSH-015) — scoped to userId for non-owners.
         // The nested per-staff breakdown is owner-only: kasir/kurir already see just their own
         // transactions, so their Staff array stays empty (mirrors the staff_revenue rule of FR-DSH-010).
@@ -283,7 +242,65 @@ public class DashboardService(AppDbContext db) : IDashboardService
             todayRevenue, todayTransactions, todayPurchaseCost, todayDebtCollected,
             lowStockCount, totalOutstandingDebt, prevRevenue,
             weeklyChart, recentResponses, warehouseStock, customerDebts, containerLoans, staffRevenue,
-            dailyStockSummary, paymentMethodBreakdown);
+            paymentMethodBreakdown);
+    }
+
+    /// <summary>
+    /// FR-DSH-012 "Pergerakan Stok" — per-product sold/received totals for an inclusive WIB date range.
+    /// Store-wide for all roles. Lives outside <see cref="GetDashboardAsync"/> so this Dashboard section has its
+    /// own period-filtered endpoint (every other dashboard section stays driven by the single `date` filter).
+    /// Sold:     dispatch movements. Refillable = filled container qty; simple = all dispatch qty.
+    /// Received: inbound movements (ToLocationId != null &amp;&amp; FromLocationId == null).
+    ///           Refillable = filled container qty only; simple = all inbound qty.
+    /// Cancelled movements (is_reversed / is_reversal) are excluded; zero-activity products are omitted.
+    /// </summary>
+    public async Task<StockMovementSummaryResponse> GetStockSummaryAsync(string period, DateOnly rangeStart, DateOnly rangeEnd)
+    {
+        var (start, _) = WibTimeZone.GetUtcDayBounds(rangeStart);
+        var (_, end)   = WibTimeZone.GetUtcDayBounds(rangeEnd);
+
+        var movements = await db.StockMovements
+            .Include(m => m.Product)
+            .Where(m => m.CreatedAt >= start && m.CreatedAt < end && !m.IsReversed && !m.IsReversal)
+            .ToListAsync();
+
+        var items = movements
+            .GroupBy(m => new { m.ProductId, m.Product.Name, m.Product.Unit, m.Product.Category })
+            .Select(pg =>
+            {
+                var isRefillable = pg.Key.Category == ProductCategory.Refillable;
+
+                var totalSold = isRefillable
+                    ? pg.Where(m => m.MovementType == MovementType.Dispatch
+                                 && m.ContainerStatus == ContainerStatus.Filled)
+                         .Sum(m => m.Quantity)
+                    : pg.Where(m => m.MovementType == MovementType.Dispatch)
+                         .Sum(m => m.Quantity);
+
+                var totalReceived = isRefillable
+                    ? pg.Where(m => m.ToLocationId != null && m.FromLocationId == null
+                                 && m.ContainerStatus == ContainerStatus.Filled)
+                         .Sum(m => m.Quantity)
+                    : pg.Where(m => m.ToLocationId != null && m.FromLocationId == null)
+                         .Sum(m => m.Quantity);
+
+                return new StockProductSummary(
+                    pg.Key.ProductId,
+                    pg.Key.Name,
+                    pg.Key.Unit,
+                    pg.Key.Category.ToString().ToLower(),
+                    totalReceived,
+                    totalSold);
+            })
+            .Where(s => s.TotalReceived > 0 || s.TotalSold > 0)
+            .OrderBy(s => s.ProductName)
+            .ToList();
+
+        return new StockMovementSummaryResponse(
+            period,
+            rangeStart.ToString("yyyy-MM-dd"),
+            rangeEnd.ToString("yyyy-MM-dd"),
+            items);
     }
 
     private async Task<IEnumerable<WarehouseStockItem>> GetWarehouseStockAsync(Guid warehouseId, string locationName)
