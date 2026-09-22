@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Pos.Api.Data;
+using Pos.Api.Data.Enums;
 using Pos.Api.DTOs.Customers;
 using Pos.Api.Models;
 using Pos.Api.Services.Interfaces;
@@ -223,6 +224,94 @@ public class CustomerService(AppDbContext db) : ICustomerService
             .ToListAsync();
 
         return new CustomerDebtHistoryResponse(customerId, customer.Name, customer.InitialDebt, customer.InitialDebt + totalDebt - totalPaid, debtTxns, payments);
+    }
+
+    /// <summary>
+    /// FR-CST-011 "Pergerakan Stok" per customer — per-product totals for an inclusive WIB date range.
+    /// Only movements whose transaction belongs to <paramref name="customerId"/> are counted, because
+    /// <c>StockMovement</c> has no customer column of its own.
+    /// Terjual:      dispatch movements. Refillable = filled container qty; simple = all dispatch qty.
+    /// Dikembalikan: inbound empty-container movements (the Step-3 container return written by
+    ///               <c>TransactionService</c>) — a customer only ever hands back empty containers.
+    /// Cancelled movements (is_reversed / is_reversal) are excluded; zero-activity products are omitted.
+    /// </summary>
+    public async Task<CustomerStockSummaryResponse?> GetStockSummaryAsync(
+        Guid customerId, string period, DateOnly rangeStart, DateOnly rangeEnd)
+    {
+        var customer = await db.Customers.FindAsync(customerId);
+        if (customer is null) return null;
+
+        var (start, _) = WibTimeZone.GetUtcDayBounds(rangeStart);
+        var (_, end) = WibTimeZone.GetUtcDayBounds(rangeEnd);
+
+        var movements = await db.StockMovements
+            .Include(m => m.Product)
+            .Include(m => m.Transaction)
+            .Include(m => m.Creator)
+            .Where(m => m.Transaction != null
+                        && m.Transaction.CustomerId == customerId
+                        && m.CreatedAt >= start && m.CreatedAt < end
+                        && !m.IsReversed && !m.IsReversal)
+            .ToListAsync();
+
+        var items = movements
+            .GroupBy(m => new { m.ProductId, m.Product.Name, m.Product.Unit, m.Product.Category })
+            .Select(pg =>
+            {
+                var isRefillable = pg.Key.Category == ProductCategory.Refillable;
+
+                var totalSold = isRefillable
+                    ? pg.Where(m => m.MovementType == MovementType.Dispatch
+                                 && m.ContainerStatus == ContainerStatus.Filled)
+                        .Sum(m => m.Quantity)
+                    : pg.Where(m => m.MovementType == MovementType.Dispatch)
+                        .Sum(m => m.Quantity);
+
+                var totalReturned = pg.Where(m => m.MovementType == MovementType.Receive
+                                               && m.ContainerStatus == ContainerStatus.Empty)
+                                      .Sum(m => m.Quantity);
+
+                var staff = pg.GroupBy(m => new { m.CreatedBy, m.Creator.Name })
+                    .Select(sg =>
+                    {
+                        var staffSold = isRefillable
+                            ? sg.Where(m => m.MovementType == MovementType.Dispatch
+                                         && m.ContainerStatus == ContainerStatus.Filled)
+                                .Sum(m => m.Quantity)
+                            : sg.Where(m => m.MovementType == MovementType.Dispatch)
+                                .Sum(m => m.Quantity);
+
+                        var staffReturned = sg.Where(m => m.MovementType == MovementType.Receive
+                                                       && m.ContainerStatus == ContainerStatus.Empty)
+                                              .Sum(m => m.Quantity);
+
+                        return new CustomerStockStaffItem(sg.Key.CreatedBy, sg.Key.Name, staffSold, staffReturned);
+                    })
+                    .Where(s => s.Sold > 0 || s.Returned > 0)
+                    .OrderByDescending(s => s.Sold)
+                    .ThenBy(s => s.StaffName)
+                    .ToList();
+
+                return new CustomerStockProductItem(
+                    pg.Key.ProductId,
+                    pg.Key.Name,
+                    pg.Key.Unit,
+                    pg.Key.Category.ToString().ToLower(),
+                    totalSold,
+                    totalReturned,
+                    staff);
+            })
+            .Where(s => s.TotalSold > 0 || s.TotalReturned > 0)
+            .OrderBy(s => s.ProductName)
+            .ToList();
+
+        return new CustomerStockSummaryResponse(
+            customerId,
+            customer.Name,
+            period,
+            rangeStart.ToString("yyyy-MM-dd"),
+            rangeEnd.ToString("yyyy-MM-dd"),
+            items);
     }
 
     private static CustomerResponse MapToResponse(Customer c, decimal outstandingDebt) =>

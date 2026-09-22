@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Pos.Api.DTOs.Customers;
+using Pos.Api.Services;
 using Pos.Api.Services.Interfaces;
 using System.Security.Claims;
 
@@ -86,6 +87,28 @@ public class CustomersController(ICustomerService customerService) : ControllerB
     public async Task<IActionResult> GetDebtHistory(Guid id)
     {
         var result = await customerService.GetDebtHistoryAsync(id);
+        return result is null ? NotFound() : Ok(result);
+    }
+
+    /// <summary>
+    /// FR-CST-011 — per-customer "Pergerakan Stok" summary for a resolved period
+    /// (Harian / Mingguan / Bulanan / Tahunan / Kustom). Visible to all roles.
+    /// </summary>
+    [HttpGet("{id:guid}/stock-summary")]
+    public async Task<IActionResult> GetStockSummary(
+        Guid id,
+        [FromQuery] string? period,
+        [FromQuery] DateOnly? date,
+        [FromQuery(Name = "start_date")] DateOnly? startDate,
+        [FromQuery(Name = "end_date")] DateOnly? endDate)
+    {
+        var anchor = date ?? WibTimeZone.TodayWib();
+
+        if (!StockPeriodRange.TryResolve(period, anchor, startDate, endDate,
+                out var normalizedPeriod, out var rangeStart, out var rangeEnd, out var error))
+            return BadRequest(new { message = error });
+
+        var result = await customerService.GetStockSummaryAsync(id, normalizedPeriod, rangeStart, rangeEnd);
         return result is null ? NotFound() : Ok(result);
     }
 }

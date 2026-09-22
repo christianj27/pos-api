@@ -1,5 +1,5 @@
 # POS App — Architecture Plan
-> MSMe Water & Gas | Doc Version 1.0 | App Version 1.0.0 | Last updated: September 16, 2026
+> MSMe Water & Gas | Doc Version 1.1 | App Version 1.1.0 | Last updated: September 21, 2026
 
 ---
 
@@ -407,9 +407,35 @@ GET    /api/dashboard               -- all authenticated roles; stats scoped to 
 
 ---
 
-## 6. Frontend Structure
+### 5.9 Daily Settlement — Tutup Kas (FR-STL-002)
 
-```
+Settlement harian per pengguna dengan dua gerbang:
+
+- **Gerbang A (ketertundaan)** — kurir/kasir dengan hari kerja yang belum `approved` sebelum hari ini tidak
+  dapat membuat transaksi, penugasan, atau pergerakan stok baru. Owner dikecualikan. Pengecualian yang
+  disengaja: perbaikan transaksi (`PUT /api/transactions/{id}`), pembayaran pada transaksi yang harinya belum
+  `approved`, dan pengajuan settlement — semuanya adalah jalur perbaikan, bukan pekerjaan baru.
+- **Gerbang B (imutabilitas)** — hari yang sudah `approved` dibekukan untuk semua peran; hanya owner `reopen`
+  (wajib alasan) yang dapat membukanya.
+
+Tabel baru (migrasi `AddDailySettlement`):
+
+| Tabel | Isi |
+|---|---|
+| `DailySettlements` | Satu baris per (pengguna, tanggal kerja WIB), unik. Status `open`/`submitted`/`rejected`/`approved`, angka snapshot saat diajukan |
+| `DailySettlementMethodLines` | Snapshot per metode bayar (cash/transfer/qris) |
+| `DailySettlementStockLines` | Rekonsiliasi per produk: saldo terisi/kosong sistem vs fisik, kontainer keluar/kembali |
+| `CashAdjustments` | Koreksi "Selisih Kas" bertanda, owner-only |
+| `AuditLogs` | Jejak audit (perubahan transaksi, setujui/tolak/buka kembali, selisih kas) dengan alasan wajib |
+| `Payments.CreatedBy` | Penerima uang; atribusi kas ke settlement yang tepat (baris lama memakai `transactions.staff_id`) |
+
+Endpoint baru: `GET /api/settlements/status` · `GET /api/settlements/preview` · `GET /api/settlements` ·
+`GET /api/settlements/{id}` · `POST /api/settlements/submit` · `POST /api/settlements/{id}/approve|reject|reopen`
+(owner) · `POST /api/settlements/adjustments` (owner) · `PUT /api/transactions/{id}`.
+
+Konfigurasi: `Settlement:EnforcementStartDate` (tanggal kerja paling awal yang ditegakkan).
+
+## 6. Frontend Structure```
 src/
 ├── assets/                  -- images, fonts
 ├── styles/

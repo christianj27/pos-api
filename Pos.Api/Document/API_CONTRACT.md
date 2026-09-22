@@ -1,5 +1,5 @@
 # API Contract — POS App
-> MSMe Water & Gas | Version 1.1 | Last updated: September 16, 2026
+> MSMe Water & Gas | Version 1.3 | Last updated: September 22, 2026
 
 ---
 
@@ -506,6 +506,61 @@ Returns aggregated (net) container balances per product, not a raw event log.
 | `payments[].note` | string \| null | — |
 | `payments[].created_by_name` | string | — |
 | `payments[].created_at` | string (ISO 8601) | — |
+
+---
+
+### GET /api/customers/{id}/stock-summary
+**Auth**: All roles (owner, kasir, kurir)
+
+FR-CST-011 — the per-customer "Pergerakan Stok" summary behind the modal opened from the customer list. Scoped to the movements of that customer's own transactions (`StockMovement.TransactionId` → `Transaction.CustomerId`; there is no customer column on `StockMovement`). Period resolution and its error messages are identical to `GET /api/dashboard/stock-summary` (FR-DSH-012).
+
+**Path Params**: `id` — UUID of the customer.
+
+**Query Params**
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `period` | string | ❌ | `day` \| `week` \| `month` \| `year` \| `custom`; defaults to `day`, or to `custom` when both range bounds are supplied. Any other value → `400` |
+| `date` | string (YYYY-MM-DD) | ❌ | Anchor date for `day`, `week`, `month` and `year`; defaults to today WIB. Ignored for `custom` |
+| `start_date` | string (YYYY-MM-DD) | ✅ for `custom` | Inclusive range start |
+| `end_date` | string (YYYY-MM-DD) | ✅ for `custom` | Inclusive range end; must be on or after `start_date` and not in the future |
+
+**Resolved ranges (WIB, inclusive)**
+| `period` | Range |
+|---|---|
+| `day` | `date` |
+| `week` | Calendar week, Monday–Sunday, containing `date` |
+| `month` | Calendar month containing `date` (1st → last day) |
+| `year` | Calendar year containing `date` (1 Jan → 31 Dec) |
+| `custom` | `start_date` through `end_date` |
+
+**Response `200`**
+| Field | Type | Notes |
+|---|---|---|
+| `customer_id` | string (UUID) | — |
+| `customer_name` | string | — |
+| `period` | string | Echo of the resolved period: `day` \| `week` \| `month` \| `year` \| `custom` |
+| `start_date` | string (YYYY-MM-DD) | Resolved inclusive range start |
+| `end_date` | string (YYYY-MM-DD) | Resolved inclusive range end |
+| `items` | array | One entry per product with activity in the range; empty when there is none. Sorted by `product_name` |
+| `items[].product_id` | string (UUID) | — |
+| `items[].product_name` | string | — |
+| `items[].product_unit` | string | — |
+| `items[].product_category` | string | `simple` \| `refillable` |
+| `items[].total_sold` | number | **Terjual** — `dispatch` movements. Refillable = filled-container qty only; simple = all dispatch qty |
+| `items[].total_returned` | number | **Dikembalikan** — inbound `receive` movements with `container_status = 'empty'` (empties the customer handed back) |
+| `items[].staff` | array | Per-staff split of the same product; sorted by `sold` descending, then `staff_name` ascending |
+| `items[].staff[].staff_id` | string (UUID) | — |
+| `items[].staff[].staff_name` | string | — |
+| `items[].staff[].sold` | number | `total_sold` rule, for this staff member |
+| `items[].staff[].returned` | number | `total_returned` rule, for this staff member |
+
+**Excluded:** movements without a transaction (e.g. vendor receives), standalone container loans (`adjustment`), and every cancelled movement (`is_reversed = true` or `is_reversal = true`). Products with both totals `0` are omitted.
+
+**Errors**
+| Status | When | Body |
+|---|---|---|
+| `400` | Invalid `period`, or an incomplete / inverted / future-dated custom range | `{ "message": "…" }` — the shared FR-DSH-012 messages |
+| `404` | `id` does not exist | — |
 
 ---
 
@@ -1355,6 +1410,91 @@ Cancelled movements (`is_reversed=true` or `is_reversal=true`) are excluded, and
 | `timestamp` | string (ISO 8601) | Server timestamp |
 
 ---
+
+## 15. Settlements (Tutup Kas)
+
+Settlement harian per pengguna — FR-STL. Semua endpoint memerlukan autentikasi (`AllStaff`) kecuali yang
+bertanda **OwnerOnly**.
+
+### `GET /api/settlements/status`
+Status pemblokiran pemanggil; dipakai frontend untuk banner.
+
+```json
+{ "blocked": true, "blocking_business_date": "2026-09-17", "blocking_status": "submitted", "blocking_settlement_id": "...", "message": "Settlement 17 September 2026 sedang menunggu persetujuan owner." }
+```
+
+### `GET /api/settlements/preview?date=YYYY-MM-DD`
+Angka hidup untuk tanggal tersebut (default hari ini WIB). `404` bila tanggal di masa depan.
+Mengembalikan `business_date`, `status`, `settlement_id`, `expected_cash`, `counted_cash`, `cash_variance`,
+`cash_in`, `cash_out`, `cash_adjustments`, `transfer_expected`, `qris_expected`, `new_debt_total`,
+`debt_payment_total`, `vehicle_location_id`, `vehicle_location_name`, `methods[]`, `stocks[]`.
+
+### `GET /api/settlements?from=&to=&user_id=&status=`
+Daftar settlement. Non-owner hanya melihat miliknya; `user_id` hanya berlaku untuk owner.
+
+### `GET /api/settlements/{id}`
+Detail + baris metode + baris stok + jejak audit. Non-owner hanya boleh membaca miliknya (`404` bila bukan).
+
+### `POST /api/settlements/submit`
+
+| Field | Tipe | Wajib | Catatan |
+|---|---|---|---|
+| `business_date` | string (`yyyy-MM-dd`) | ❌ | Default hari ini (WIB) |
+| `counted_cash` | number | ✅ | Kas fisik yang dihitung |
+| `method_lines` | array `{ method, counted_amount }` | ❌ | Metode non-tunai default ke nilai sistem |
+| `stock_lines` | array `{ product_id, counted_filled, counted_empty }` | ❌ | Item yang tidak dikirim default ke nilai sistem |
+| `note` | string | ❌ | Maks 500 |
+
+`200` dengan objek settlement · `409` `{ message, code }` dengan `code` = `CASH_VARIANCE`, `DAY_LOCKED`, atau
+`NO_ACTIVITY` · `400` untuk validasi lain.
+
+### `POST /api/settlements/{id}/approve` **OwnerOnly**
+Setujui settlement berstatus `submitted`. Hari menjadi terkunci (Gerbang B). `400` bila status bukan `submitted`.
+
+### `POST /api/settlements/{id}/reject` **OwnerOnly**
+
+| Field | Tipe | Wajib |
+|---|---|---|
+| `reason` | string | ✅ |
+
+Mengembalikan hari ke `rejected`; pengguna kembali diblokir Gerbang A.
+
+### `POST /api/settlements/{id}/reopen` **OwnerOnly**
+
+| Field | Tipe | Wajib |
+|---|---|---|
+| `reason` | string | ✅ |
+
+Membuka hari `approved` menjadi `open`.
+
+### `POST /api/settlements/adjustments` **OwnerOnly**
+
+| Field | Tipe | Wajib | Catatan |
+|---|---|---|---|
+| `user_id` | uuid | ✅ | Pengguna yang kasnya dikoreksi |
+| `business_date` | string (`yyyy-MM-dd`) | ✅ | Tidak boleh di masa depan; ditolak bila hari sudah `approved` |
+| `amount` | number | ✅ | Bertanda: negatif = kas kurang, positif = kas lebih; tidak boleh 0 |
+| `reason` | string | ✅ | Maks 255 |
+
+### `PUT /api/transactions/{id}`
+Perbaikan transaksi sebelum settlement (FR-STL-008).
+
+| Field | Tipe | Wajib |
+|---|---|---|
+| `items` | array `{ product_id, quantity, unit_price }` | ✅ |
+| `paid_amount` | number | ✅ |
+| `payment_method` | string (`cash`/`transfer`/`qris`) | ✅ |
+| `reference_no` | string | ❌ |
+| `notes` | string | ❌ |
+| `reason` | string | ✅ |
+
+`400` dengan pesan kesalahan bila tidak berhak, hari sudah `approved`, atau transaksi memiliki lebih dari satu
+pembayaran sementara `paid_amount` diubah.
+
+### `POST /api/transactions/{id}/payments`
+Berubah dari **OwnerOnly** menjadi berbasis kepemilikan: owner boleh mencatat pada transaksi apa pun,
+kurir/kasir hanya pada transaksi miliknya (`staff_id == user id`). Pembayaran lama tetap boleh dicatat saat
+pengguna terkena Gerbang A — menagih hutang lama adalah perbaikan, bukan pekerjaan baru.
 
 ## Known Gaps
 
