@@ -21,4 +21,9 @@ public class User
     public ICollection<DeliveryAssignment> CreatedAssignments { get; set; } = [];
     public ICollection<DeliveryAssignment> KurirAssignments { get; set; } = [];
     public ICollection<Expense> Expenses { get; set; } = [];
+    public ICollection<DailySettlement> Settlements { get; set; } = [];
+    public ICollection<DailySettlement> ReviewedSettlements { get; set; } = [];
+    public ICollection<CashAdjustment> CashAdjustments { get; set; } = [];
+    public ICollection<CashAdjustment> CreatedCashAdjustments { get; set; } = [];
+    public ICollection<AuditLog> AuditLogs { get; set; } = [];
 }

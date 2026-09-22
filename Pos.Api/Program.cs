@@ -88,6 +88,9 @@ builder.Services.AddScoped<IDebtPaymentService, DebtPaymentService>();
 builder.Services.AddScoped<IDashboardService, DashboardService>();
 builder.Services.AddScoped<ICashFlowService, CashFlowService>();
 builder.Services.AddScoped<IExpenseService, ExpenseService>();
+builder.Services.AddScoped<DayTotalsCalculator>();
+builder.Services.AddScoped<ISettlementGuard, SettlementGuard>();
+builder.Services.AddScoped<ISettlementService, SettlementService>();
 
 // -- Controllers & OpenAPI -----------------------------------------------------
 builder.Services.AddControllers();

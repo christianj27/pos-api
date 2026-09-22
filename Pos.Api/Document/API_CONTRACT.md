@@ -1,5 +1,5 @@
 # API Contract — POS App
-> MSMe Water & Gas | Version 1.1 | Last updated: September 16, 2026
+> MSMe Water & Gas | Version 1.2 | Last updated: September 21, 2026
 
 ---
 
@@ -1355,6 +1355,91 @@ Cancelled movements (`is_reversed=true` or `is_reversal=true`) are excluded, and
 | `timestamp` | string (ISO 8601) | Server timestamp |
 
 ---
+
+## 15. Settlements (Tutup Kas)
+
+Settlement harian per pengguna — FR-STL. Semua endpoint memerlukan autentikasi (`AllStaff`) kecuali yang
+bertanda **OwnerOnly**.
+
+### `GET /api/settlements/status`
+Status pemblokiran pemanggil; dipakai frontend untuk banner.
+
+```json
+{ "blocked": true, "blocking_business_date": "2026-09-17", "blocking_status": "submitted", "blocking_settlement_id": "...", "message": "Settlement 17 September 2026 sedang menunggu persetujuan owner." }
+```
+
+### `GET /api/settlements/preview?date=YYYY-MM-DD`
+Angka hidup untuk tanggal tersebut (default hari ini WIB). `404` bila tanggal di masa depan.
+Mengembalikan `business_date`, `status`, `settlement_id`, `expected_cash`, `counted_cash`, `cash_variance`,
+`cash_in`, `cash_out`, `cash_adjustments`, `transfer_expected`, `qris_expected`, `new_debt_total`,
+`debt_payment_total`, `vehicle_location_id`, `vehicle_location_name`, `methods[]`, `stocks[]`.
+
+### `GET /api/settlements?from=&to=&user_id=&status=`
+Daftar settlement. Non-owner hanya melihat miliknya; `user_id` hanya berlaku untuk owner.
+
+### `GET /api/settlements/{id}`
+Detail + baris metode + baris stok + jejak audit. Non-owner hanya boleh membaca miliknya (`404` bila bukan).
+
+### `POST /api/settlements/submit`
+
+| Field | Tipe | Wajib | Catatan |
+|---|---|---|---|
+| `business_date` | string (`yyyy-MM-dd`) | ❌ | Default hari ini (WIB) |
+| `counted_cash` | number | ✅ | Kas fisik yang dihitung |
+| `method_lines` | array `{ method, counted_amount }` | ❌ | Metode non-tunai default ke nilai sistem |
+| `stock_lines` | array `{ product_id, counted_filled, counted_empty }` | ❌ | Item yang tidak dikirim default ke nilai sistem |
+| `note` | string | ❌ | Maks 500 |
+
+`200` dengan objek settlement · `409` `{ message, code }` dengan `code` = `CASH_VARIANCE`, `DAY_LOCKED`, atau
+`NO_ACTIVITY` · `400` untuk validasi lain.
+
+### `POST /api/settlements/{id}/approve` **OwnerOnly**
+Setujui settlement berstatus `submitted`. Hari menjadi terkunci (Gerbang B). `400` bila status bukan `submitted`.
+
+### `POST /api/settlements/{id}/reject` **OwnerOnly**
+
+| Field | Tipe | Wajib |
+|---|---|---|
+| `reason` | string | ✅ |
+
+Mengembalikan hari ke `rejected`; pengguna kembali diblokir Gerbang A.
+
+### `POST /api/settlements/{id}/reopen` **OwnerOnly**
+
+| Field | Tipe | Wajib |
+|---|---|---|
+| `reason` | string | ✅ |
+
+Membuka hari `approved` menjadi `open`.
+
+### `POST /api/settlements/adjustments` **OwnerOnly**
+
+| Field | Tipe | Wajib | Catatan |
+|---|---|---|---|
+| `user_id` | uuid | ✅ | Pengguna yang kasnya dikoreksi |
+| `business_date` | string (`yyyy-MM-dd`) | ✅ | Tidak boleh di masa depan; ditolak bila hari sudah `approved` |
+| `amount` | number | ✅ | Bertanda: negatif = kas kurang, positif = kas lebih; tidak boleh 0 |
+| `reason` | string | ✅ | Maks 255 |
+
+### `PUT /api/transactions/{id}`
+Perbaikan transaksi sebelum settlement (FR-STL-008).
+
+| Field | Tipe | Wajib |
+|---|---|---|
+| `items` | array `{ product_id, quantity, unit_price }` | ✅ |
+| `paid_amount` | number | ✅ |
+| `payment_method` | string (`cash`/`transfer`/`qris`) | ✅ |
+| `reference_no` | string | ❌ |
+| `notes` | string | ❌ |
+| `reason` | string | ✅ |
+
+`400` dengan pesan kesalahan bila tidak berhak, hari sudah `approved`, atau transaksi memiliki lebih dari satu
+pembayaran sementara `paid_amount` diubah.
+
+### `POST /api/transactions/{id}/payments`
+Berubah dari **OwnerOnly** menjadi berbasis kepemilikan: owner boleh mencatat pada transaksi apa pun,
+kurir/kasir hanya pada transaksi miliknya (`staff_id == user id`). Pembayaran lama tetap boleh dicatat saat
+pengguna terkena Gerbang A — menagih hutang lama adalah perbaikan, bukan pekerjaan baru.
 
 ## Known Gaps
 

@@ -8,4 +8,11 @@ public interface ITransactionService
     Task<TransactionDetailResponse?> GetByIdAsync(Guid id, Guid userId, string role);
     Task<(TransactionDetailResponse? Transaction, string? Error)> CreateAsync(CreateTransactionRequest request, Guid staffId, string role);
     Task<(bool Success, string? Error)> UpdateStatusAsync(Guid id, UpdateTransactionStatusRequest request, Guid userId, string role);
+
+    /// <summary>
+    /// Corrects an open-day transaction (items, amounts, method, notes) with a mandatory reason.
+    /// The creator may edit their own transactions; the owner may edit any non-approved day.
+    /// </summary>
+    Task<(TransactionDetailResponse? Transaction, string? Error)> EditAsync(
+        Guid id, EditTransactionRequest request, Guid userId, string role);
 }

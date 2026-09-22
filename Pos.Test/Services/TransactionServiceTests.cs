@@ -24,7 +24,7 @@ public class TransactionServiceTests
     public TransactionServiceTests()
     {
         _db = DbContextFactory.Create(Guid.NewGuid().ToString());
-        _sut = new TransactionService(_db);
+        _sut = new TransactionService(_db, DbContextFactory.CreateGuard(_db));
         Seed();
     }
 

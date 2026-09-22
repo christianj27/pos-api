@@ -21,6 +21,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<DeliveryAssignment> DeliveryAssignments => Set<DeliveryAssignment>();
     public DbSet<DeliveryAssignmentItem> DeliveryAssignmentItems => Set<DeliveryAssignmentItem>();
     public DbSet<Expense> Expenses => Set<Expense>();
+    public DbSet<DailySettlement> DailySettlements => Set<DailySettlement>();
+    public DbSet<DailySettlementMethodLine> DailySettlementMethodLines => Set<DailySettlementMethodLine>();
+    public DbSet<DailySettlementStockLine> DailySettlementStockLines => Set<DailySettlementStockLine>();
+    public DbSet<CashAdjustment> CashAdjustments => Set<CashAdjustment>();
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -187,6 +192,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
              .WithMany(t => t.Payments)
              .HasForeignKey(p => p.TransactionId)
              .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(p => p.Creator)
+             .WithMany()
+             .HasForeignKey(p => p.CreatedBy)
+             .OnDelete(DeleteBehavior.SetNull);
         });
 
         // -- DebtPayment -------------------------------------------------------
@@ -305,6 +314,106 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.HasOne(ai => ai.Product)
              .WithMany(p => p.AssignmentItems)
              .HasForeignKey(ai => ai.ProductId)
+             .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // -- DailySettlement ---------------------------------------------------
+        modelBuilder.Entity<DailySettlement>(e =>
+        {
+            e.HasKey(s => s.Id);
+            e.Property(s => s.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(s => s.Status).HasConversion<string>();
+            e.Property(s => s.Note).HasMaxLength(500);
+            e.Property(s => s.ReviewNote).HasMaxLength(500);
+            e.Property(s => s.ExpectedCash).HasPrecision(15, 2);
+            e.Property(s => s.CountedCash).HasPrecision(15, 2);
+            e.Property(s => s.CashVariance).HasPrecision(15, 2);
+            e.Property(s => s.CashIn).HasPrecision(15, 2);
+            e.Property(s => s.CashOut).HasPrecision(15, 2);
+            e.Property(s => s.CashAdjustmentTotal).HasPrecision(15, 2);
+            e.Property(s => s.TransferExpected).HasPrecision(15, 2);
+            e.Property(s => s.QrisExpected).HasPrecision(15, 2);
+            e.Property(s => s.NewDebtTotal).HasPrecision(15, 2);
+            e.Property(s => s.DebtPaymentTotal).HasPrecision(15, 2);
+            e.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
+            e.HasIndex(s => new { s.UserId, s.BusinessDate }).IsUnique();
+            e.HasIndex(s => new { s.Status, s.BusinessDate });
+            e.HasOne(s => s.User)
+             .WithMany(u => u.Settlements)
+             .HasForeignKey(s => s.UserId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(s => s.Reviewer)
+             .WithMany(u => u.ReviewedSettlements)
+             .HasForeignKey(s => s.ReviewedBy)
+             .OnDelete(DeleteBehavior.SetNull);
+            e.HasOne(s => s.VehicleLocation)
+             .WithMany()
+             .HasForeignKey(s => s.VehicleLocationId)
+             .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // -- DailySettlementMethodLine -----------------------------------------
+        modelBuilder.Entity<DailySettlementMethodLine>(e =>
+        {
+            e.HasKey(l => l.Id);
+            e.Property(l => l.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(l => l.Method).HasConversion<string>();
+            e.Property(l => l.ExpectedAmount).HasPrecision(15, 2);
+            e.Property(l => l.CountedAmount).HasPrecision(15, 2);
+            e.Property(l => l.Variance).HasPrecision(15, 2);
+            e.HasOne(l => l.Settlement)
+             .WithMany(s => s.MethodLines)
+             .HasForeignKey(l => l.SettlementId)
+             .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // -- DailySettlementStockLine ------------------------------------------
+        modelBuilder.Entity<DailySettlementStockLine>(e =>
+        {
+            e.HasKey(l => l.Id);
+            e.Property(l => l.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.HasOne(l => l.Settlement)
+             .WithMany(s => s.StockLines)
+             .HasForeignKey(l => l.SettlementId)
+             .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(l => l.Product)
+             .WithMany()
+             .HasForeignKey(l => l.ProductId)
+             .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // -- CashAdjustment ----------------------------------------------------
+        modelBuilder.Entity<CashAdjustment>(e =>
+        {
+            e.HasKey(a => a.Id);
+            e.Property(a => a.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(a => a.Amount).HasPrecision(15, 2);
+            e.Property(a => a.Reason).HasMaxLength(255).IsRequired();
+            e.Property(a => a.CreatedAt).HasDefaultValueSql("now()");
+            e.HasIndex(a => new { a.UserId, a.BusinessDate });
+            e.HasOne(a => a.User)
+             .WithMany(u => u.CashAdjustments)
+             .HasForeignKey(a => a.UserId)
+             .OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(a => a.Creator)
+             .WithMany(u => u.CreatedCashAdjustments)
+             .HasForeignKey(a => a.CreatedBy)
+             .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // -- AuditLog ----------------------------------------------------------
+        modelBuilder.Entity<AuditLog>(e =>
+        {
+            e.HasKey(a => a.Id);
+            e.Property(a => a.Id).HasDefaultValueSql("gen_random_uuid()");
+            e.Property(a => a.EntityType).HasMaxLength(50).IsRequired();
+            e.Property(a => a.Action).HasMaxLength(50).IsRequired();
+            e.Property(a => a.Reason).HasMaxLength(255);
+            e.Property(a => a.CreatedAt).HasDefaultValueSql("now()");
+            e.HasIndex(a => new { a.EntityType, a.EntityId });
+            e.HasOne(a => a.Actor)
+             .WithMany(u => u.AuditLogs)
+             .HasForeignKey(a => a.ActorId)
              .OnDelete(DeleteBehavior.Restrict);
         });
     }

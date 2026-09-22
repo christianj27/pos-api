@@ -63,6 +63,22 @@ public class CashFlowServiceTests
             CreatedAt = DateTime.UtcNow
         };
         _db.Transactions.Add(tx);
+
+        // FR-PAY-001: the app writes a Payments row for the paid amount, and Arus Kas dates cash by when
+        // it was collected (Payment.PaidAt) rather than by the invoice date.
+        if (paid > 0m)
+        {
+            _db.Payments.Add(new Payment
+            {
+                Id = Guid.NewGuid(),
+                TransactionId = tx.Id,
+                Amount = paid,
+                Method = PaymentMethod.Cash,
+                PaidAt = DateTime.UtcNow,
+                CreatedBy = StaffId
+            });
+        }
+
         _db.SaveChanges();
         return tx;
     }
@@ -272,5 +288,45 @@ public class CashFlowServiceTests
         Assert.Equal(0m, result.TotalCashOut);
         Assert.Equal(0m, result.NetCash);
         Assert.Equal(0m, result.TotalNewDebt);
+    }
+
+    // ── Settlement-driven entries (FR-STL) ────────────────────────────────
+
+    [Fact]
+    public async Task GetCashFlow_LateInstalment_LandsOnCollectionDayNotInvoiceDay()
+    {
+        // Invoice raised three days ago, money collected today: the cash belongs to today, and the
+        // invoice's own day must not be rewritten (that day may already be settled).
+        var tx = AddTransaction(paid: 0m, debt: 30000m);
+        tx.CreatedAt = DateTime.UtcNow.AddDays(-3);
+        _db.Payments.Add(new Payment
+        {
+            Id = Guid.NewGuid(), TransactionId = tx.Id, Amount = 30000m,
+            Method = PaymentMethod.Cash, PaidAt = DateTime.UtcNow, CreatedBy = StaffId
+        });
+        _db.SaveChanges();
+
+        var collectionDay = await _sut.GetCashFlowAsync(Today);
+        var invoiceDay = await _sut.GetCashFlowAsync(Today.AddDays(-3));
+
+        Assert.Contains(collectionDay.Entries, e => e.Category == "sale_payment" && e.Amount == 30000m);
+        Assert.DoesNotContain(invoiceDay.Entries, e => e.Category == "sale_payment");
+    }
+
+    [Fact]
+    public async Task GetCashFlow_CashAdjustment_BooksOnItsBusinessDate()
+    {
+        _db.CashAdjustments.Add(new CashAdjustment
+        {
+            Id = Guid.NewGuid(), UserId = StaffId, BusinessDate = Today,
+            Amount = -5000m, Reason = "Kas kurang", CreatedBy = StaffId, CreatedAt = DateTime.UtcNow
+        });
+        _db.SaveChanges();
+
+        var result = await _sut.GetCashFlowAsync(Today);
+
+        Assert.Contains(result.Entries, e =>
+            e.Category == "cash_variance" && e.FlowType == "cash_out" && e.Amount == 5000m);
+        Assert.Equal(-5000m, result.NetCash);
     }
 }

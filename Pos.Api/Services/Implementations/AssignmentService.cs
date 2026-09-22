@@ -8,7 +8,7 @@ using Pos.Api.Services.Interfaces;
 
 namespace Pos.Api.Services.Implementations;
 
-public class AssignmentService(AppDbContext db, ITransactionService transactionService) : IAssignmentService
+public class AssignmentService(AppDbContext db, ITransactionService transactionService, ISettlementGuard guard) : IAssignmentService
 {
     public async Task<IEnumerable<AssignmentResponse>> GetAllAsync(Guid userId, string role, DateOnly? date = null)
     {
@@ -48,6 +48,12 @@ public class AssignmentService(AppDbContext db, ITransactionService transactionS
         var location = await db.Locations.FindAsync(request.LocationId);
         if (location is null || !location.IsActive)
             return (null, "Lokasi tidak valid atau tidak aktif.");
+
+        // Settlement gate: whoever is doing the work needs their previous day closed (FR-STL-002).
+        var newWorkBlock = await guard.EnsureNewWorkAllowedAsync(createdBy);
+        if (newWorkBlock is not null) return (null, newWorkBlock);
+
+        await guard.TouchDayAsync(createdBy, WibTimeZone.TodayWib());
 
         var assignment = new DeliveryAssignment
         {
@@ -91,6 +97,12 @@ public class AssignmentService(AppDbContext db, ITransactionService transactionS
         if (assignment is null) return (false, "Penugasan tidak ditemukan.");
         if (assignment.Status != AssignmentStatus.Pending) return (false, "Penugasan ini sudah diproses atau dibatalkan.");
         if (assignment.KurirId != kurirId) return (false, "Anda tidak memiliki izin untuk memproses penugasan ini.");
+
+        // Settlement gate: the kurir must have closed their previous business day before fulfilling.
+        var newWorkBlock = await guard.EnsureNewWorkAllowedAsync(kurirId);
+        if (newWorkBlock is not null) return (false, newWorkBlock);
+
+        await guard.TouchDayAsync(kurirId, WibTimeZone.TodayWib());
 
         // Use location stored on assignment; fall back to kurir's assigned vehicle for old records
         Guid locationId;

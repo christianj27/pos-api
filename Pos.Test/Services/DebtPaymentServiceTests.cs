@@ -19,7 +19,7 @@ public class DebtPaymentServiceTests
     public DebtPaymentServiceTests()
     {
         _db = DbContextFactory.Create(Guid.NewGuid().ToString());
-        _sut = new DebtPaymentService(_db);
+        _sut = new DebtPaymentService(_db, DbContextFactory.CreateGuard(_db));
         Seed();
     }
 

@@ -20,4 +20,7 @@ public static class WibTimeZone
 
     /// <summary>Converts a UTC timestamp to wall-clock time in WIB.</summary>
     public static DateTime ToWib(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(utc, Zone);
+
+    /// <summary>Business date (WIB) that a UTC timestamp belongs to.</summary>
+    public static DateOnly ToWibDate(DateTime utc) => DateOnly.FromDateTime(ToWib(utc));
 }

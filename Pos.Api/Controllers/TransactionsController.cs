@@ -51,11 +51,26 @@ public class TransactionsController(
         return Ok(new { message = "Status transaksi berhasil diperbarui." });
     }
 
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> Edit(Guid id, [FromBody] EditTransactionRequest request)
+    {
+        var userId = GetUserId();
+        var role = GetRole();
+        var (transaction, error) = await transactionService.EditAsync(id, request, userId, role);
+        if (transaction is null) return BadRequest(new { message = error });
+        return Ok(transaction);
+    }
+
+    /// <summary>
+    /// Records further payment on an existing transaction. The owner may record on any transaction;
+    /// kurir/kasir only on transactions they created (FR-PAY-002).
+    /// </summary>
     [HttpPost("{id:guid}/payments")]
-    [Authorize(Policy = "OwnerOnly")]
     public async Task<IActionResult> AddPayment(Guid id, [FromBody] CreatePaymentRequest request)
     {
-        var (payment, error) = await paymentService.AddPaymentAsync(id, request);
+        var userId = GetUserId();
+        var role = GetRole();
+        var (payment, error) = await paymentService.AddPaymentAsync(id, request, userId, role);
         if (payment is null) return BadRequest(new { message = error });
         return Ok(payment);
     }

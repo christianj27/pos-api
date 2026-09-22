@@ -1,5 +1,5 @@
 # POS App — Functional Requirements Document (FRD)
-> MSMe Water & Gas | Spec Version 5.13 | App Version 1.0.0 | September 18, 2026
+> MSMe Water & Gas | Spec Version 5.14 | App Version 1.1.0 | September 21, 2026
 
 ---
 
@@ -7,6 +7,7 @@
 
 | Version | Date | Author | Changes |
 |---|---|---|---------|
+| 5.14 | September 21, 2026 | — | FR-STL — **Settlement Harian (Tutup Kas)** dan rilis aplikasi **1.1.0**. Setiap kurir/kasir wajib menutup setiap hari kerja (WIB) yang memiliki aktivitas sebelum boleh mencatat pekerjaan baru, dan owner wajib menyetujui penutupan tersebut. Tabel baru: `DailySettlements` (unik per pengguna + tanggal kerja, status `open`/`submitted`/`rejected`/`approved`, angka snapshot saat diajukan), `DailySettlementMethodLines`, `DailySettlementStockLines`, `CashAdjustments`, `AuditLogs`, serta kolom `Payments.created_by`; migrasi EF `AddDailySettlement`. Dua gerbang: **Gerbang A** (ketertundaan) memblokir transaksi baru, penugasan baru, dan pergerakan stok bagi kurir/kasir yang masih memiliki hari sebelumnya belum disetujui — owner dikecualikan, dan jalur perbaikan (edit transaksi, pencatatan pembayaran atas transaksi yang harinya belum disetujui, serta pengajuan settlement) tetap diizinkan; **Gerbang B** (imutabilitas) membekukan seluruh data pada hari yang sudah disetujui dan hanya owner dapat membukanya kembali dengan alasan wajib. Selisih kas wajib nol untuk mengajukan; bila uang memang kurang atau lebih, owner mencatat koreksi **Selisih Kas** bertanda yang tampil di Arus Kas sebagai kategori `cash_variance`. Endpoint baru: `GET /api/settlements/status`, `GET /api/settlements/preview`, `GET /api/settlements`, `GET /api/settlements/{id}`, `POST /api/settlements/submit`, `POST /api/settlements/{id}/approve`, `POST /api/settlements/{id}/reject`, `POST /api/settlements/{id}/reopen`, `POST /api/settlements/adjustments`, serta `PUT /api/transactions/{id}` untuk perbaikan transaksi dengan alasan wajib dan jejak audit; `POST /api/transactions/{id}/payments` berubah dari owner-only menjadi berbasis kepemilikan sehingga kurir/kasir dapat mencatat pembayaran pada transaksinya sendiri (FR-PAY-002 dan matriks izin §14 diperbarui). Kelas baru `DayTotalsCalculator` (satu sumber angka harian) dan `SettlementGuard` (kedua gerbang, resolve peran sendiri). `CashFlowService` kini menghitung kas penjualan dari tabel `Payments` berdasarkan `paid_at` dan `created_by`, sehingga cicilan yang dicatat belakangan tidak lagi menulis ulang hari lama. Konfigurasi baru `Settlement:EnforcementStartDate` agar aktivasi fitur tidak memblokir pengguna karena riwayat lamanya. Frontend: halaman baru `/settlement` (**Tutup Kas Harian**) untuk semua peran berisi ringkasan harian, input kas fisik, rekonsiliasi stok/kontainer kendaraan, riwayat, serta aksi setujui/tolak/buka kembali/selisih kas bagi owner; modal baru `EditTransactionModal`; tombol **Tutup Kas** pada header halaman Transaksi khusus kurir dan kasir karena halaman `/lainnya` hanya untuk owner (FR-STL-012); banner pemblokiran dan penonaktifan tab tulis pada halaman Stok; kartu **Tutup Kas** pada hub Lainnya; `settlementService.ts` beserta mock-nya. Requirement baru FR-STL-001–FR-STL-012 dan VAL-STL-001–VAL-STL-007 dengan section baru §21; §10.4, §11.2, dan §14 diperbarui. Dokumen manual test baru `SETTLEMENT_TEST_PLAN.md`. Tampilan detail owner (FR-STL-013) termasuk dalam changeset yang sama: modal dari `GET /api/settlements/{id}` berisi rincian per metode pembayaran, rekonsiliasi stok kendaraan, jejak audit, catatan, serta aksi setujui, tolak, buka kembali, dan selisih kas. |
 | 5.13 | September 18, 2026 | — | FR-DSH-012 diperluas — bagian **"Pergerakan Stok"** pada Dashboard kini memiliki pemilih periode sendiri (**Harian, Mingguan, Bulanan, Tahunan, Kustom**) yang **hanya memengaruhi bagian tersebut**; seluruh bagian Dashboard lain tetap memakai filter tanggal tunggal (FR-DSH-006) dan tidak terpengaruh. Mingguan = pekan kalender **Senin–Minggu**, Bulanan = bulan kalender, Tahunan = tahun kalender, Kustom = rentang tanggal mulai sampai selesai (inklusif, tidak boleh melewati hari ini); tanggal pada date picker Dashboard tetap menjadi jangkar bagi ketiga preset pertama, dan rentang terpilih selalu ditampilkan sebagai keterangan di bawah tab. Endpoint baru `GET /api/dashboard/stock-summary` menerima `period`, `date`, `start_date` dan `end_date` serta mengembalikan `{ period, start_date, end_date, items[] }`; **`daily_stock_summary` dihapus dari `GET /api/dashboard`** karena hanya bagian ini yang memakainya, sehingga peralihan periode tidak lagi memicu pengambilan ulang seluruh Dashboard dan bagian ini melakukan polling 5 detik sendiri. Backend: kelas baru `StockPeriodRange` (resolusi periode dengan pesan galat `"Periode tidak valid."`, `"Tanggal mulai dan tanggal selesai wajib diisi."`, `"Tanggal mulai harus sebelum atau sama dengan tanggal selesai."`, `"Tanggal tidak boleh di masa depan."`), record baru `StockMovementSummaryResponse`, record `DailyStockProductSummary` diganti nama menjadi `StockProductSummary`, `DashboardService.GetStockSummaryAsync` dipindahkan keluar dari `GetDashboardAsync`, dan aksi `GET /api/dashboard/stock-summary` ditambahkan pada `DashboardController`. `GET /api/stock/movements` menerima parameter baru `start_date`, `end_date`, dan `product_id` (rentang menang atas `date`, mengikuti pola `start_date` dan `end_date` Arus Kas) sehingga modal detail hanya memuat pergerakan produk pada rentang terpilih. Frontend: util baru `utils/stockPeriod.ts` (`resolveStockPeriodRange`, `formatStockPeriodCaption`, `STOCK_PERIOD_OPTIONS`), rename `DailyStockProductSummary` menjadi `StockProductSummary` serta tipe baru `StockPeriod` dan `StockMovementSummaryResponse` pada `types/index.ts`, metode `dashboardService.getStockSummary()`, `stockService.getMovements()` menerima objek query, `DashboardPage` menambah state periode dan rentang kustom, tab periode, keterangan rentang, empty state per periode (`"Tidak ada pergerakan stok pada tanggal ini."` untuk Harian dan `"Tidak ada pergerakan stok pada periode ini."` untuk periode lain), baris galat `"Gagal memuat pergerakan stok."`, serta keterangan periode pada modal detail; kelas SCSS baru `.periodTabs`, `.periodTab`, `.periodTabActive`, `.periodCustomRow`, `.periodCustomSep`, `.periodCaption`, `.periodError`, `.periodLoading`. Seed `mockDb.stockMovements` ditambah agar seluruh preset terisi pada mode mock. Tanpa endpoint pengganti, tanpa migrasi, dan tanpa bump App Version. |
 | 5.12 | September 16, 2026 | — | Kebijakan versi diperkenalkan — aplikasi kini memiliki **App Version** tersendiri (`1.0.0`) yang terpisah dari **Spec Version** dokumen ini; tidak ada perubahan perilaku fungsional. Section baru **§1.5 Versioning Policy** menetapkan dua aliran penomoran tersebut, aturan naik versi aplikasi (MAJOR = batas fase/perubahan breaking, MINOR = requirement atau modul fitur baru, PATCH = perbaikan bug/teks/UX), tabel pemetaan App ↔ Spec, serta catatan agar tabel Revision History tetap 4 kolom. Header dokumen kini memuat token `Spec Version 5.12` serta `App Version 1.0.0`; `ARCHITECTURE.md` memakai token App Version yang sama. Sumber angka versi: `package.json` (`"version"`) dan `Pos.Api.csproj` (`<Version>`), di-inject saat build oleh Vite (`vite.config.ts` → `define.__APP_VERSION__` + `__APP_BUILD__` = 7 karakter commit SHA), lalu diekspos dari `src/utils/constants.ts` (`APP_VERSION`, `formatAppVersion()`). Versi ditampilkan sebagai teks redup `"Versi aplikasi 1.0.0"` di layar masuk, halaman Profil Saya, dan hub Lainnya; file baru `src/vite-env.d.ts` mendeklarasikan kedua konstanta build-time tersebut. Backend: respons `GET /api/health` bertambah field `version` yang dibaca dari assembly yang berjalan; `Pos.Api.csproj` menambah `<Version>1.0.0</Version>` dan `<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>` agar .NET tidak menempelkan akhiran `+<sha>`. Kelas SCSS baru `.appVersion` pada `LoginPage.module.scss`, `ProfilePage.module.scss`, dan `LainnyaPage.module.scss`. Tanpa endpoint baru, tanpa migrasi, tanpa perubahan skema. |
 | 5.11 | September 16, 2026 | — | FR-DSH-013 didokumentasikan sebagai section §13.2 + FR-DSH-015 baru — kartu **Pendapatan** pada Dashboard resmi menjadi tombol yang membuka modal **"Rincian Metode Pembayaran"** (FR-DSH-002 diperbarui; FR-DSH-013 sebelumnya hanya tercatat di baris revisi 5.4 dan belum pernah menjadi requirement tersendiri). Modal kini juga menampilkan **rincian pendapatan per staf untuk setiap metode pembayaran** (owner only): `payment_method_breakdown[]` bertambah field `staff[]` berisi `{ staff_id, staff_name, amount, count }` — hanya transaksi `completed` pada tanggal terpilih, diurutkan `amount` menurun lalu nama staf; untuk kasir/kurir array `staff` selalu kosong (mengikuti pola `staff_revenue` FR-DSH-010) dan daftar per staf tidak dirender. Setiap kartu metode tetap menampilkan total + jumlah transaksi, ditambah baris staf (nama, nominal, jumlah transaksi) dan bar proporsi terhadap total metode tersebut; empty state per metode `"Belum ada transaksi"`. Backend: record baru `PaymentMethodStaffItem` di `Pos.Api/DTOs/Dashboard/`; `PaymentMethodBreakdownItem` bertambah field `Staff`; `DashboardService.GetDashboardAsync` menambah agregasi `GroupBy(PaymentMethod, StaffId)` khusus owner. Frontend: `PaymentMethodStaffItem` + `PaymentMethodBreakdownItem.staff` di `types/index.ts`; `computePaymentMethodBreakdown()` di mock `dashboardService` menerima flag `includeStaff`; `PaymentMethodModal` menerima prop `showStaffBreakdown` dan merender baris staf; kelas SCSS baru (`.cardDivider`, `.staffList`, `.staffTitle`, `.staffRow`, `.staffRowTop`, `.staffName`, `.staffAmount`, `.staffBar`, `.staffBarFill`, `.staffEmpty`); seed QRIS baru pada `mockDb.dashboardStats.recentTransactions`. Tanpa endpoint baru, tanpa migrasi. `payment_method_breakdown[].staff` juga didokumentasikan di API_CONTRACT.md §13. |
@@ -96,7 +97,7 @@ The project carries **two independent version numbers**. They answer different q
 | 1 | **Spec Version** | Header of this document (`Spec Version`) and the Revision History above | *Which revision of the specification is this?* |
 | 2 | **App Version** | `package.json` `"version"`, `Pos.Api.csproj` `<Version>`, `GET /api/health`, and the in-app footer (login screen, `/profile`, `/lainnya`) | *Which release of the software is running?* |
 
-**Spec Version** follows this document's own revision trail (`5.12`, `5.13`, …). It is bumped for **every documented change** — including clarifications and frontend-only tweaks that ship no new release. A major bump (`6.0`) is reserved for a phase boundary: the Phase 1 go-live freeze, or the start of Phase 2 (QRIS gateway integration).
+**Spec Version** follows this document's own revision trail (`5.13`, `5.14`, …). It is bumped for **every documented change** — including clarifications and frontend-only tweaks that ship no new release. A major bump (`6.0`) is reserved for a phase boundary: the Phase 1 go-live freeze, or the start of Phase 2 (QRIS gateway integration).
 
 **App Version** is a hand-maintained semantic version declared in `package.json` and mirrored in `Pos.Api.csproj`:
 
@@ -112,6 +113,7 @@ Build identity is tracked separately from the App Version. CI builds append the 
 
 | App Version | Spec Version | Date | Scope |
 |---|---|---|---|
+| 1.1.0 | 5.14 | September 21, 2026 | Daily Settlement / Tutup Kas (FR-STL-001–012) — per-user daily close with owner approval, two gates, Selisih Kas, payment attribution |
 | 1.0.0 | 5.12 | September 16, 2026 | Phase 1 feature-complete — app version declared and surfaced in the UI, `/api/health`, and the docs |
 
 > **Maintenance note:** the Revision History table above keeps its **four columns**. Do not add an App Version column to it — each row must contain exactly five `|` characters (four columns) or the markdown table breaks. Record every new release in the mapping table in this section instead.
@@ -868,6 +870,9 @@ Before submitting in Langkah 3, the frontend checks each cart item's quantity ag
   - Debt indicator: show "Ada utang: Rp X" in red on rows with outstanding debt
   - "Batalkan" button visible for any non-cancelled transaction (own for kurir/kasir; any for owner)
   - "Buat Penugasan" button in header (Owner/Kasir only)
+  - "Ubah" button on any non-cancelled transaction created by the signed-in user, or on any transaction for the Owner; opens the edit form with a mandatory reason (FR-STL-008). Setelah tanggalnya disetujui, tombolnya tetap tampil tetapi API menolaknya (Gerbang B, FR-STL-002).
+  - **"Tutup Kas" button in header — Kurir and Kasir only** (FR-STL-012); opens `/settlement`. Not rendered for the Owner, who reaches the same page from the Lainnya hub (`/lainnya`).
+  - When the signed-in user has an unsettled earlier business day: a red banner appears above the date filter with a "Buka Tutup Kas" button and **"+ Transaksi Baru" is disabled** (FR-STL-002). The Owner is never blocked, so neither appears for them.
 
 - **Cancel confirmation dialog:**
   - For all cancels: `"Batalkan transaksi ini? Stok akan dikembalikan secara otomatis."`
@@ -896,7 +901,12 @@ Before submitting in Langkah 3, the frontend checks each cart item's quantity ag
 A `Payments` record is created when a transaction is submitted, with `amount = paid_amount`. If `paid_amount = 0`, no Payments record is created.
 
 **FR-PAY-002 — Additional payment on transaction**
-Owner can record additional payment(s) via `POST /api/transactions/{id}/payments` until `SUM(Payments.amount) = total_amount`.
+Owner can record additional payment(s) on any transaction via `POST /api/transactions/{id}/payments` until `SUM(Payments.amount) = total_amount`.
+Sejak FR-STL-007, kurir dan kasir juga dapat mencatat pembayaran pada transaksi yang mereka buat sendiri
+(`staff_id` = pengguna yang sedang masuk), sehingga uang yang mereka terima dapat diatribusikan ke settlement
+hariannya. Setiap baris `Payments` menyimpan penerima uang pada kolom `created_by` (baris lama tanpa `created_by`
+dianggap milik `transactions.staff_id`). Mencatat pembayaran pada hari yang belum disetujui tetap diperbolehkan
+walau pengguna terkena Gerbang A, karena menagih hutang lama adalah perbaikan data, bukan pekerjaan baru.
 
 **FR-PAY-003 — Transaction payment status**
 Derived:
@@ -1261,6 +1271,7 @@ The dashboard shall include a **"Kontainer Pelanggan"** section positioned immed
 | **Transactions** — Cancel any / update status | ✅ | ❌ | ❌ |
 | **Payments** — View own txn status | ✅ | ✅ | ✅ |
 | **Payments** — Add payment on any txn | ✅ | ❌ | ❌ |
+| **Payments** — Add payment on own txn | ✅ | ✅ | ✅ |
 | **Payments** — Standalone debt payment | ✅ | ❌ | ❌ |
 | **Container Loans** — View (Stock page Kontainer tab) / standalone return | ✅ | ❌ | ❌ |
 | **Container Loans** — View summary (Dashboard section, FR-DSH-014) | ✅ | ✅ | ✅ |
@@ -1530,3 +1541,123 @@ Owner dapat mencatat pengeluaran operasional dengan deskripsi bebas — mis. ben
 | VAL-CSH-004 | `expense_date` | Wajib; tidak boleh di masa depan (WIB) | `"Tanggal pengeluaran wajib diisi."` / `"Tanggal pengeluaran tidak boleh di masa depan."` |
 
 *Notifikasi Toast:* Catat → `"Pengeluaran berhasil dicatat."` · Ubah → `"Pengeluaran berhasil diperbarui."` · Hapus → `"Pengeluaran berhasil dihapus."` · Gagal → `"Terjadi kesalahan. Silakan coba lagi."`
+
+---
+
+## 21. Daily Settlement — Tutup Kas (FR-STL)
+
+Settlement berjalan seperti closing batch pada mesin EDC: setiap kurir/kasir wajib menutup setiap hari kerja yang
+memiliki aktivitas sebelum boleh mencatat pekerjaan baru di hari berikutnya, dan owner wajib menyetujuinya.
+Hari kerja = tanggal kalender WIB (batas tengah malam, tanpa jam cut-off pada Fase 1).
+
+### 21.1 Functional Requirements
+
+**FR-STL-001 — Baris harian dibuat malas (lazy)**
+Baris `DailySettlements` berstatus `open` dibuat saat pengguna pertama kali menulis apa pun pada tanggal tersebut
+(transaksi, pembayaran, penugasan, pergerakan stok, pembayaran hutang, pengeluaran). Hari tanpa aktivitas tidak
+pernah memiliki baris sehingga tidak pernah memblokir siapa pun, dan riwayat lama tidak perlu dimigrasi.
+
+**FR-STL-002 — Dua gerbang**
+- **Gerbang A (ketertundaan):** kurir/kasir yang memiliki baris berstatus `open`/`submitted`/`rejected` dengan
+  `business_date < hari ini` tidak dapat membuat transaksi baru, penugasan baru, atau pergerakan stok.
+  Owner tidak terkena gerbang ini.
+- **Gerbang B (imutabilitas):** setelah sebuah hari `approved`, seluruh data pada tanggal tersebut terkunci
+  (tidak bisa dibuat, diubah, dibatalkan, dibayar, atau dibalik). Hanya `reopen` oleh owner (wajib alasan) yang
+  dapat membukanya kembali.
+
+**FR-STL-003 — Tanggal kerja** adalah tanggal kalender WIB dari `created_at` (transaksi, hutang, pengeluaran
+memakai `expense_date`) dan `paid_at` pada pembayaran.
+
+**FR-STL-004 — Angka settlement dihitung dari ledger**
+Kas dihitung dari tabel `Payments` (bukan kolom cache `transactions.paid_amount`) sehingga pembayaran yang
+diterima hari ini atas transaksi lama masuk ke settlement hari ini, bukan menulis ulang hari lama.
+Ringkasan menampilkan: kas masuk tunai, kas keluar, penyesuaian selisih kas, kas yang seharusnya ada,
+Transfer, QRIS, piutang baru, dan pembayaran hutang diterima.
+
+**FR-STL-005 — Selisih kas wajib nol**
+Pengajuan ditolak bila `counted_cash != expected_cash`. Pengguna harus memperbaiki transaksinya, atau meminta
+owner mencatat Selisih Kas (FR-STL-009). Selisih stok/kontainer dicatat dan ditampilkan, tetapi tidak
+memblokir pengajuan — owner yang memutuskan lewat setujui/tolak.
+
+**FR-STL-006 — Rekonsiliasi stok & kontainer**
+Untuk kendaraan yang ditugaskan ke pengguna, settlement menampilkan saldo terisi/kosong sistem per produk
+(aturan sama dengan `GET /api/stock/levels`) beserta jumlah kontainer keluar dan kembali pada hari itu.
+
+**FR-STL-007 — Atribusi pembayaran**
+`Payments.created_by` menyimpan siapa yang menerima uang, sehingga kas masuk ke settlement penerima.
+Baris lama tanpa `created_by` dianggap milik `transactions.staff_id`.
+
+**FR-STL-008 — Perbaikan transaksi sebelum settlement**
+Pembuat transaksi dapat mengubah transaksinya (item, jumlah, harga, jumlah bayar, metode, referensi, catatan)
+selama hari tersebut belum `approved`. Alasan wajib diisi dan setiap perubahan dicatat pada `AuditLogs`
+(old → new). Perubahan item menulis ulang pergerakan dispatch (dibalik lalu dibuat ulang) dan pinjaman
+kontainer. Mengubah pelanggan dan membatalkan transaksi tidak termasuk.
+
+**FR-STL-009 — Selisih Kas (owner)**
+Owner dapat mencatat koreksi kas bertanda untuk seorang pengguna pada tanggal tertentu
+(`cash_adjustment`, negatif = kas kurang, positif = kas lebih). Catatan muncul di Arus Kas sebagai
+`cash_in`/`cash_out` kategori `cash_variance` dan menambah/mengurangi kas yang seharusnya ada.
+
+**FR-STL-010 — Tanggal mulai berlaku**
+`Settlement:EnforcementStartDate` pada konfigurasi menentukan tanggal kerja paling awal yang ditegakkan,
+sehingga mengaktifkan fitur ini tidak memblokir pengguna karena riwayat lamanya.
+
+**FR-STL-011 — Owner juga menutup harinya**
+Owner tidak diblokir, tetapi tetap memiliki baris settlement dan dapat mengajukan serta menyetujui harinya
+sendiri (hanya ada satu owner pada Fase 1).
+
+**FR-STL-012 — Titik masuk per peran**
+Halaman `/settlement` terbuka untuk semua peran, tetapi titik masuknya berbeda karena `/lainnya` hanya dapat
+diakses owner:
+- **Kurir dan Kasir:** tombol **Tutup Kas** pada header halaman Transaksi (bersebelahan dengan "+ Transaksi Baru"),
+  selalu tampil dan tidak bergantung pada status pemblokiran. Tombol ini sengaja **tidak** dirender untuk owner.
+- **Owner:** kartu **Tutup Kas** pada halaman Lainnya (`/lainnya`), mengikuti pola hub yang sudah ada.
+- **Semua peran, termasuk owner:** saat terkena Gerbang A, banner di halaman Transaksi dan Stok menyediakan
+  tombol **Buka Tutup Kas**.
+
+Navigasi bawah tidak berubah: kurir dan kasir tetap memakai item **Profil**, bukan **Lainnya**.
+
+**FR-STL-013 — Tampilan detail untuk owner**
+Owner dapat membuka detail sebuah settlement dari tombol **Detail** pada barisnya. Detail diambil dari
+`GET /api/settlements/{id}` dan menampilkan:
+- header: nama pengguna, tanggal kerja, status, waktu pengajuan, serta waktu dan nama peninjau;
+- tabel rincian per metode pembayaran (Tunai, Transfer, QRIS) berisi nilai sistem, nilai fisik, dan selisih;
+- ringkasan kas yang seharusnya ada, kas fisik dihitung, piutang baru, dan pembayaran hutang diterima;
+- tabel rekonsiliasi stok kendaraan yang dapat digeser ke samping pada layar sempit;
+- jejak audit aksi-aksi pada settlement tersebut (diajukan, disetujui, ditolak, dibuka kembali, selisih kas)
+  beserta alasan, pelaku, dan waktunya; serta
+- catatan pengguna dan catatan peninjauan bila ada.
+
+Aksi **Setujui** tersedia di dalam modal; **Tolak**, **Buka Kembali**, dan **Selisih Kas** menutup modal detail
+lalu membuka modal alasan yang sudah ada (modal tidak bertingkat). Setelah aksi berhasil, modal detail memuat ulang
+datanya sehingga snapshot dan jejak audit terbaru langsung terlihat. Hanya owner yang melihat tombol **Detail**;
+pengguna biasa hanya melihat riwayatnya sendiri tanpa aksi peninjauan.
+
+### 21.2 Matriks Izin
+
+| Aksi | Owner | Kurir | Kasir |
+|---|---|---|---|
+| Lihat settlement sendiri | ✅ | ✅ | ✅ |
+| Lihat settlement semua pengguna | ✅ | ❌ | ❌ |
+| Ajukan / tutup kas | ✅ | ✅ | ✅ |
+| Setujui / tolak / buka kembali | ✅ | ❌ | ❌ |
+| Catat Selisih Kas | ✅ | ❌ | ❌ |
+| Tambah pembayaran pada transaksi sendiri | ✅ | ✅ | ✅ |
+
+### 21.3 Validasi
+
+| ID | Field | Rule | Pesan |
+|---|---|---|---|
+| VAL-STL-001 | `counted_cash` | Wajib; `counted_cash - expected_cash` harus 0 | `"Kas fisik ... tidak sama dengan perhitungan sistem ..."` (kode `CASH_VARIANCE`) |
+| VAL-STL-002 | `business_date` | Tidak boleh di masa depan (WIB) | `"Tanggal settlement tidak boleh di masa depan."` |
+| VAL-STL-003 | `business_date` | Harus memiliki aktivitas | `"Tidak ada aktivitas pada tanggal tersebut, jadi tidak perlu settlement."` (kode `NO_ACTIVITY`) |
+| VAL-STL-004 | `reason` (edit transaksi, tolak, buka kembali, selisih kas) | Wajib | `"Alasan perubahan wajib diisi."` / `"Alasan penolakan wajib diisi."` / `"Alasan membuka kembali wajib diisi."` / `"Alasan selisih kas wajib diisi."` |
+| VAL-STL-005 | `amount` (Selisih Kas) | Wajib, tidak boleh 0 | `"Jumlah selisih kas tidak boleh nol."` |
+| VAL-STL-006 | Tambah pembayaran | Kurir/kasir hanya untuk transaksinya sendiri | `"Anda hanya dapat mencatat pembayaran untuk transaksi Anda sendiri."` |
+| VAL-STL-007 | Edit transaksi | Hanya transaksi sendiri (kecuali owner); tidak untuk hari `approved` | `"Anda hanya dapat mengubah transaksi Anda sendiri."` |
+
+### 21.4 Notifikasi
+
+Tutup kas → `"Settlement berhasil diajukan. Menunggu persetujuan owner."` · Setujui → `"Settlement disetujui."` ·
+Tolak → `"Settlement ditolak. Pengguna harus memperbaiki lalu mengajukan ulang."` · Buka kembali →
+`"Settlement dibuka kembali."` · Selisih kas → `"Selisih kas berhasil dicatat."`

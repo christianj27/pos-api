@@ -7,7 +7,7 @@ using Pos.Api.Services.Interfaces;
 
 namespace Pos.Api.Services.Implementations;
 
-public class ExpenseService(AppDbContext db) : IExpenseService
+public class ExpenseService(AppDbContext db, ISettlementGuard guard) : IExpenseService
 {
     private const string NotFoundError = "Pengeluaran tidak ditemukan.";
 
@@ -29,6 +29,12 @@ public class ExpenseService(AppDbContext db) : IExpenseService
     {
         var error = Validate(request.Category, request.Description, request.Amount, request.ExpenseDate, out var category);
         if (error is not null) return (null, error);
+
+        // Gate B: a back-dated expense must not change a business date the owner already approved.
+        var dayLock = await guard.EnsureDayWritableAsync(createdBy, request.ExpenseDate);
+        if (dayLock is not null) return (null, dayLock);
+
+        await guard.TouchDayAsync(createdBy, request.ExpenseDate);
 
         var expense = new Expense
         {
@@ -54,6 +60,13 @@ public class ExpenseService(AppDbContext db) : IExpenseService
         var error = Validate(request.Category, request.Description, request.Amount, request.ExpenseDate, out var category);
         if (error is not null) return (null, false, error);
 
+        // Moving an expense must not touch an approved day at either end.
+        var fromLock = await guard.EnsureDayWritableAsync(expense.CreatedBy, expense.ExpenseDate);
+        if (fromLock is not null) return (null, false, fromLock);
+
+        var toLock = await guard.EnsureDayWritableAsync(expense.CreatedBy, request.ExpenseDate);
+        if (toLock is not null) return (null, false, toLock);
+
         expense.Category = category;
         expense.Description = request.Description.Trim();
         expense.Amount = request.Amount;
@@ -67,6 +80,10 @@ public class ExpenseService(AppDbContext db) : IExpenseService
     {
         var expense = await db.Expenses.FindAsync(id);
         if (expense is null) return (false, true, NotFoundError);
+
+        // Gate B: deleting an expense changes that day's cash, so an approved day is protected.
+        var dayLock = await guard.EnsureDayWritableAsync(expense.CreatedBy, expense.ExpenseDate);
+        if (dayLock is not null) return (false, false, dayLock);
 
         db.Expenses.Remove(expense);
         await db.SaveChangesAsync();

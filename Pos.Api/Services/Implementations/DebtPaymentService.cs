@@ -7,7 +7,7 @@ using Pos.Api.Services.Interfaces;
 
 namespace Pos.Api.Services.Implementations;
 
-public class DebtPaymentService(AppDbContext db) : IDebtPaymentService
+public class DebtPaymentService(AppDbContext db, ISettlementGuard guard) : IDebtPaymentService
 {
     public async Task<IEnumerable<DebtPaymentResponse>> GetAllAsync(DateOnly? date)
     {
@@ -39,6 +39,17 @@ public class DebtPaymentService(AppDbContext db) : IDebtPaymentService
 
         if (request.Amount <= 0)
             return (null, "Jumlah pembayaran wajib diisi dan harus positif.");
+
+        // Settlement gates: the collector's previous day must be closed, and the collection day must
+        // not have been approved yet.
+        var newWorkBlock = await guard.EnsureNewWorkAllowedAsync(createdBy);
+        if (newWorkBlock is not null) return (null, newWorkBlock);
+
+        var businessDate = WibTimeZone.TodayWib();
+        var dayLock = await guard.EnsureDayWritableAsync(createdBy, businessDate);
+        if (dayLock is not null) return (null, dayLock);
+
+        await guard.TouchDayAsync(createdBy, businessDate);
 
         var payment = new DebtPayment
         {

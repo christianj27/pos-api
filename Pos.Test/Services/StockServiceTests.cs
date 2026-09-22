@@ -22,7 +22,7 @@ public class StockServiceTests
     public StockServiceTests()
     {
         _db = DbContextFactory.Create(Guid.NewGuid().ToString());
-        _sut = new StockService(_db);
+        _sut = new StockService(_db, DbContextFactory.CreateGuard(_db));
         Seed();
     }
 

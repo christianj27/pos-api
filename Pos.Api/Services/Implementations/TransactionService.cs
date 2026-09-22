@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Pos.Api.Data;
 using Pos.Api.Data.Enums;
@@ -7,7 +8,7 @@ using Pos.Api.Services.Interfaces;
 
 namespace Pos.Api.Services.Implementations;
 
-public class TransactionService(AppDbContext db) : ITransactionService
+public class TransactionService(AppDbContext db, ISettlementGuard guard) : ITransactionService
 {
     public async Task<IEnumerable<TransactionResponse>> GetAllAsync(Guid userId, string role, DateOnly? date)
     {
@@ -76,6 +77,17 @@ public class TransactionService(AppDbContext db) : ITransactionService
             return (null, "Tipe transaksi tidak valid untuk peran Anda.");
         if (role == "kasir" && txType != TransactionType.Counter)
             return (null, "Tipe transaksi tidak valid untuk peran Anda.");
+
+        // Settlement gates (FR-STL-002): no new transaction while an earlier day is still unapproved,
+        // and never write into a day the owner has already approved.
+        var newWorkBlock = await guard.EnsureNewWorkAllowedAsync(staffId);
+        if (newWorkBlock is not null) return (null, newWorkBlock);
+
+        var businessDate = WibTimeZone.TodayWib();
+        var dayLock = await guard.EnsureDayWritableAsync(staffId, businessDate);
+        if (dayLock is not null) return (null, dayLock);
+
+        await guard.TouchDayAsync(staffId, businessDate);
 
         var totalAmount = request.Items.Sum(i => i.Quantity * i.UnitPrice);
 
@@ -222,6 +234,11 @@ public class TransactionService(AppDbContext db) : ITransactionService
         if (transaction is null) return (false, "Transaction not found.");
         if (transaction.Status == TransactionStatus.Cancelled) return (false, "Transaksi sudah dibatalkan.");
 
+        // Gate B: an approved business date is frozen until the owner reopens it.
+        var dayLock = await guard.EnsureDayWritableAsync(
+            transaction.StaffId, WibTimeZone.ToWibDate(transaction.CreatedAt));
+        if (dayLock is not null) return (false, dayLock);
+
         var stockMovements = await db.StockMovements
             .Where(sm => sm.TransactionId == id).ToListAsync();
 
@@ -298,6 +315,189 @@ public class TransactionService(AppDbContext db) : ITransactionService
             await dbTx.RollbackAsync();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Corrects an open-day transaction (FR-STL-008). The creator may fix their own transactions and the
+    /// owner may fix any transaction, but only while the business date is not approved — that is the
+    /// intended way for a user to make counted cash match the system's expectation.
+    /// </summary>
+    public async Task<(TransactionDetailResponse? Transaction, string? Error)> EditAsync(
+        Guid id, EditTransactionRequest request, Guid userId, string role)
+    {
+        if (string.IsNullOrWhiteSpace(request.Reason))
+            return (null, "Alasan perubahan wajib diisi.");
+
+        var items = request.Items?.ToList() ?? [];
+        if (items.Count == 0)
+            return (null, "Tambahkan minimal satu produk.");
+
+        if (!Enum.TryParse<PaymentMethod>(request.PaymentMethod, ignoreCase: true, out var payMethod))
+            return (null, "Metode pembayaran wajib dipilih.");
+
+        var transaction = await db.Transactions
+            .Include(t => t.Items)
+            .Include(t => t.ContainerLoans)
+            .Include(t => t.Payments)
+            .Include(t => t.StockMovements)
+            .FirstOrDefaultAsync(t => t.Id == id);
+
+        if (transaction is null) return (null, "Transaksi tidak ditemukan.");
+        if (transaction.Status == TransactionStatus.Cancelled) return (null, "Transaksi sudah dibatalkan.");
+
+        if (role is not "owner" && transaction.StaffId != userId)
+            return (null, "Anda hanya dapat mengubah transaksi Anda sendiri.");
+
+        var dayLock = await guard.EnsureDayWritableAsync(
+            transaction.StaffId, WibTimeZone.ToWibDate(transaction.CreatedAt));
+        if (dayLock is not null) return (null, dayLock);
+
+        var newTotal = items.Sum(i => i.Quantity * i.UnitPrice);
+
+        if (request.PaidAmount < 0 || request.PaidAmount > newTotal)
+            return (null, "Jumlah bayar tidak boleh melebihi total transaksi.");
+
+        // Instalments are the payment ledger's business: rewriting several of them here would silently
+        // move cash between business dates. A single-payment transaction can be corrected in place.
+        if (transaction.Payments.Count > 1 && request.PaidAmount != transaction.PaidAmount)
+            return (null, "Transaksi ini memiliki beberapa pembayaran. Ubah jumlah bayar lewat pembayaran tambahan.");
+
+        var changesJson = JsonSerializer.Serialize(new
+        {
+            before = new
+            {
+                totalAmount = transaction.TotalAmount,
+                paidAmount = transaction.PaidAmount,
+                paymentMethod = transaction.PaymentMethod.ToString().ToLower(),
+                notes = transaction.Notes,
+                items = transaction.Items.Select(i => new { i.ProductId, i.Quantity, i.UnitPrice })
+            },
+            after = new
+            {
+                totalAmount = newTotal,
+                paidAmount = request.PaidAmount,
+                paymentMethod = payMethod.ToString().ToLower(),
+                notes = request.Notes,
+                items = items.Select(i => new { i.ProductId, i.Quantity, i.UnitPrice })
+            }
+        });
+
+        var products = await db.Products
+            .Where(p => items.Select(i => i.ProductId).Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id);
+
+        // Restate the dispatch movements. The on-hand balance is the sum of all movement rows, so the old
+        // dispatches are compensated by an explicit return movement rather than merely flagged.
+        foreach (var movement in transaction.StockMovements
+                     .Where(m => m.MovementType == MovementType.Dispatch && !m.IsReversal)
+                     .ToList())
+        {
+            movement.IsReversed = true;
+
+            db.StockMovements.Add(new StockMovement
+            {
+                ProductId = movement.ProductId,
+                MovementType = MovementType.Receive,
+                ContainerStatus = movement.ContainerStatus,
+                Quantity = movement.Quantity,
+                ToLocationId = movement.FromLocationId,
+                TransactionId = transaction.Id,
+                IsReversal = true,
+                CreatedBy = userId
+            });
+        }
+
+        db.TransactionItems.RemoveRange(transaction.Items);
+
+        // Container loans follow the items: the previous outgoing loans are reversed and re-created with
+        // the new quantities. Container returns (negative loans) are not part of the edit.
+        foreach (var loan in transaction.ContainerLoans.Where(l => !l.IsReversed && l.Quantity > 0).ToList())
+            loan.IsReversed = true;
+
+        foreach (var item in items)
+        {
+            products.TryGetValue(item.ProductId, out var product);
+            var isRefillable = product?.Category == ProductCategory.Refillable;
+
+            db.TransactionItems.Add(new TransactionItem
+            {
+                TransactionId = transaction.Id,
+                ProductId = item.ProductId,
+                Quantity = item.Quantity,
+                UnitPrice = item.UnitPrice
+            });
+
+            db.StockMovements.Add(new StockMovement
+            {
+                ProductId = item.ProductId,
+                MovementType = MovementType.Dispatch,
+                ContainerStatus = isRefillable ? ContainerStatus.Filled : ContainerStatus.Na,
+                Quantity = item.Quantity,
+                FromLocationId = transaction.LocationId,
+                TransactionId = transaction.Id,
+                CreatedBy = userId
+            });
+
+            if (isRefillable && transaction.CustomerId.HasValue)
+            {
+                db.ContainerLoans.Add(new ContainerLoan
+                {
+                    TransactionId = transaction.Id,
+                    CustomerId = transaction.CustomerId.Value,
+                    ProductId = item.ProductId,
+                    Quantity = item.Quantity,
+                    CreatedBy = userId
+                });
+            }
+        }
+
+        // Keep the payment ledger in step without moving its collection timestamp (and therefore its
+        // business date) — the original collector stays attributed.
+        var payment = transaction.Payments.FirstOrDefault();
+
+        if (request.PaidAmount == 0m)
+        {
+            if (payment is not null) db.Payments.Remove(payment);
+        }
+        else if (payment is null)
+        {
+            db.Payments.Add(new Payment
+            {
+                TransactionId = transaction.Id,
+                Amount = request.PaidAmount,
+                Method = payMethod,
+                ReferenceNo = request.ReferenceNo,
+                PaidAt = transaction.CreatedAt,
+                CreatedBy = transaction.StaffId
+            });
+        }
+        else
+        {
+            payment.Amount = request.PaidAmount;
+            payment.Method = payMethod;
+            payment.ReferenceNo = request.ReferenceNo;
+        }
+
+        transaction.TotalAmount = newTotal;
+        transaction.PaidAmount = request.PaidAmount;
+        transaction.DebtAmount = newTotal - request.PaidAmount;
+        transaction.PaymentMethod = payMethod;
+        transaction.Notes = request.Notes;
+
+        db.AuditLogs.Add(new AuditLog
+        {
+            EntityType = "transaction",
+            EntityId = transaction.Id,
+            Action = "edit",
+            Reason = request.Reason.Trim(),
+            ChangesJson = changesJson,
+            ActorId = userId
+        });
+
+        await db.SaveChangesAsync();
+
+        var detail = await GetByIdAsync(transaction.Id, transaction.StaffId, "owner");
+        return (detail, null);
     }
 
     private static TransactionResponse MapToResponse(Transaction t) =>

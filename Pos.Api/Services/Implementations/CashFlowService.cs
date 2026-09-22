@@ -17,29 +17,39 @@ public class CashFlowService(AppDbContext db) : ICashFlowService
         var (_, end)   = WibTimeZone.GetUtcDayBounds(endDate);
         var entries = new List<CashFlowEntryResponse>();
 
-        // 1. Transactions - cash_in/sale_payment + new_debt/debt_created
+        // 1a. Payments - cash_in/sale_payment, dated by when the money was actually collected
+        //     (Payment.PaidAt) instead of when the invoice was raised. Otherwise an instalment recorded
+        //     later would rewrite a past day's cash — the settlement feature freezes those days (Gate B).
+        var payments = await db.Payments
+            .Include(p => p.Transaction).ThenInclude(t => t.Customer)
+            .Include(p => p.Transaction).ThenInclude(t => t.Staff)
+            .Include(p => p.Creator)
+            .Where(p => p.PaidAt >= start && p.PaidAt < end
+                        && p.Transaction.Status != TransactionStatus.Cancelled)
+            .ToListAsync();
+
+        foreach (var p in payments)
+        {
+            entries.Add(new CashFlowEntryResponse(
+                Guid.NewGuid(), p.Id, "cash_in", "sale_payment", p.Amount,
+                $"Penjualan - {p.Transaction.Customer?.Name ?? "Tanpa Pelanggan"}",
+                p.TransactionId, p.Creator?.Name ?? p.Transaction.Staff.Name, p.PaidAt));
+        }
+
+        // 1b. Transactions - new_debt/debt_created
         var transactions = await db.Transactions
             .Include(t => t.Customer)
             .Include(t => t.Staff)
-            .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= start && t.CreatedAt < end)
+            .Where(t => t.Status == TransactionStatus.Completed && t.CreatedAt >= start && t.CreatedAt < end
+                        && t.DebtAmount > 0)
             .ToListAsync();
 
         foreach (var t in transactions)
         {
-            if (t.PaidAmount > 0)
-            {
-                entries.Add(new CashFlowEntryResponse(
-                    Guid.NewGuid(), t.Id, "cash_in", "sale_payment", t.PaidAmount,
-                    $"Penjualan - {t.Customer?.Name ?? "Tanpa Pelanggan"}",
-                    t.Id, t.Staff.Name, t.CreatedAt));
-            }
-            if (t.DebtAmount > 0)
-            {
-                entries.Add(new CashFlowEntryResponse(
-                    Guid.NewGuid(), t.Id, "new_debt", "debt_created", t.DebtAmount,
-                    $"Piutang Baru - {t.Customer?.Name ?? "Tanpa Pelanggan"}",
-                    t.Id, t.Staff.Name, t.CreatedAt));
-            }
+            entries.Add(new CashFlowEntryResponse(
+                Guid.NewGuid(), t.Id, "new_debt", "debt_created", t.DebtAmount,
+                $"Piutang Baru - {t.Customer?.Name ?? "Tanpa Pelanggan"}",
+                t.Id, t.Staff.Name, t.CreatedAt));
         }
 
         // 2. DebtPayments - cash_in/debt_payment
@@ -91,6 +101,26 @@ public class CashFlowService(AppDbContext db) : ICashFlowService
                 Guid.NewGuid(), x.Id, "cash_out", "operational_expense", x.Amount,
                 $"{x.Category.ToLabel()} - {x.Description}",
                 x.Id, x.Creator.Name, occurredAt));
+        }
+
+        // 5. Cash adjustments ("Selisih Kas", FR-STL-009) - owner-booked correction for money that is
+        //    genuinely short (negative → cash_out) or over (positive → cash_in).
+        var adjustments = await db.CashAdjustments
+            .Include(a => a.User)
+            .Include(a => a.Creator)
+            .Where(a => a.BusinessDate >= startDate && a.BusinessDate <= endDate)
+            .ToListAsync();
+
+        foreach (var a in adjustments)
+        {
+            var (dayStartUtc, _) = WibTimeZone.GetUtcDayBounds(a.BusinessDate);
+            var occurredAt = dayStartUtc.Add(WibTimeZone.ToWib(a.CreatedAt).TimeOfDay);
+
+            entries.Add(new CashFlowEntryResponse(
+                Guid.NewGuid(), a.Id,
+                a.Amount >= 0 ? "cash_in" : "cash_out", "cash_variance", Math.Abs(a.Amount),
+                $"Selisih Kas - {a.User.Name}: {a.Reason}",
+                a.Id, a.Creator.Name, occurredAt));
         }
 
         entries.Sort((a, b) => b.CreatedAt.CompareTo(a.CreatedAt));

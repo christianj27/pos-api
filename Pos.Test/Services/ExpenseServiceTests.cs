@@ -18,7 +18,7 @@ public class ExpenseServiceTests
     public ExpenseServiceTests()
     {
         _db = DbContextFactory.Create(Guid.NewGuid().ToString());
-        _sut = new ExpenseService(_db);
+        _sut = new ExpenseService(_db, DbContextFactory.CreateGuard(_db));
 
         _db.Users.Add(new User
         {

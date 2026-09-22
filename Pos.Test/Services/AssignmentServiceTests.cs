@@ -24,8 +24,8 @@ public class AssignmentServiceTests
     public AssignmentServiceTests()
     {
         _db = DbContextFactory.Create(Guid.NewGuid().ToString());
-        var txService = new TransactionService(_db);
-        _sut = new AssignmentService(_db, txService);
+        var txService = new TransactionService(_db, DbContextFactory.CreateGuard(_db));
+        _sut = new AssignmentService(_db, txService, DbContextFactory.CreateGuard(_db));
         Seed();
     }
 

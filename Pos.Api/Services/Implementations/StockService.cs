@@ -7,7 +7,7 @@ using Pos.Api.Services.Interfaces;
 
 namespace Pos.Api.Services.Implementations;
 
-public class StockService(AppDbContext db) : IStockService
+public class StockService(AppDbContext db, ISettlementGuard guard) : IStockService
 {
     public async Task<IEnumerable<StockLevelResponse>> GetLevelsAsync(Guid? locationId)
     {
@@ -110,6 +110,7 @@ public class StockService(AppDbContext db) : IStockService
 
     public async Task<(bool Success, string? Error)> CreateMovementAsync(CreateMovementRequest request, Guid createdBy)
     {
+        if (await EnsureDayOpenAsync(createdBy) is { } dayError) return (false, dayError);
         if (!Enum.TryParse<MovementType>(request.MovementType, ignoreCase: true, out var movType))
             return (false, "Tipe pergerakan wajib dipilih.");
 
@@ -177,6 +178,7 @@ public class StockService(AppDbContext db) : IStockService
 
     public async Task<(bool Success, string? Error)> BulkCreateMovementAsync(BulkCreateMovementRequest request, Guid createdBy)
     {
+        if (await EnsureDayOpenAsync(createdBy) is { } dayError) return (false, dayError);
         if (!Enum.TryParse<MovementType>(request.MovementType, ignoreCase: true, out var movType))
             return (false, "Tipe pergerakan wajib dipilih.");
 
@@ -216,6 +218,7 @@ public class StockService(AppDbContext db) : IStockService
 
     public async Task<(bool Success, string? Error)> TransferAsync(TransferRequest request, Guid createdBy)
     {
+        if (await EnsureDayOpenAsync(createdBy) is { } dayError) return (false, dayError);
         var product = await db.Products.FindAsync(request.ProductId);
         if (product is null) return (false, "Produk tidak ditemukan.");
 
@@ -244,6 +247,7 @@ public class StockService(AppDbContext db) : IStockService
 
     public async Task<(bool Success, string? Error)> BulkTransferAsync(BulkTransferRequest request, Guid createdBy)
     {
+        if (await EnsureDayOpenAsync(createdBy) is { } dayError) return (false, dayError);
         var productIds = request.Items.Select(i => i.ProductId).Distinct().ToList();
         var simpleProductIds = (await db.Products
             .Where(p => productIds.Contains(p.Id) && p.Category == ProductCategory.Simple)
@@ -280,6 +284,7 @@ public class StockService(AppDbContext db) : IStockService
 
     public async Task<(bool Success, string? Error)> VendorExchangeAsync(VendorExchangeRequest request, Guid createdBy)
     {
+        if (await EnsureDayOpenAsync(createdBy) is { } dayError) return (false, dayError);
         await using var tx = await db.Database.BeginTransactionAsync();
         try
         {
@@ -324,6 +329,7 @@ public class StockService(AppDbContext db) : IStockService
 
     public async Task<(bool Success, string? Error)> BulkVendorExchangeAsync(BulkVendorExchangeRequest request, Guid createdBy)
     {
+        if (await EnsureDayOpenAsync(createdBy) is { } dayError) return (false, dayError);
         await using var tx = await db.Database.BeginTransactionAsync();
         try
         {
@@ -371,6 +377,7 @@ public class StockService(AppDbContext db) : IStockService
 
     public async Task<(bool Success, string? Error)> ProductionAsync(ProductionRequest request, Guid createdBy)
     {
+        if (await EnsureDayOpenAsync(createdBy) is { } dayError) return (false, dayError);
         var product = await db.Products.FindAsync(request.ProductId);
         if (product is null) return (false, "Produk tidak ditemukan.");
 
@@ -425,6 +432,11 @@ public class StockService(AppDbContext db) : IStockService
             return (null, "Pergerakan dispatch tidak dapat dibatalkan di sini. Batalkan transaksinya.");
         if (movement.IsReversed || movement.IsReversal)
             return (null, "Pergerakan ini sudah pernah dibatalkan.");
+
+        // Gate B: reversing changes stock (and possibly cash) on the movement's own business date.
+        var movementDayLock = await guard.EnsureDayWritableAsync(
+            movement.CreatedBy, WibTimeZone.ToWibDate(movement.CreatedAt));
+        if (movementDayLock is not null) return (null, movementDayLock);
 
         // Gather all movements in the same batch
         var batch = movement.BatchId.HasValue
@@ -510,6 +522,23 @@ public class StockService(AppDbContext db) : IStockService
         }
     }
 
+    /// <summary>
+    /// Settlement gate for stock writes (FR-STL-002): no truck loading, transfer, defect, production or
+    /// vendor exchange while an earlier business day is still waiting to be settled.
+    /// </summary>
+    private async Task<string?> EnsureDayOpenAsync(Guid userId)
+    {
+        var blocked = await guard.EnsureNewWorkAllowedAsync(userId);
+        if (blocked is not null) return blocked;
+
+        var businessDate = WibTimeZone.TodayWib();
+        var locked = await guard.EnsureDayWritableAsync(userId, businessDate);
+        if (locked is not null) return locked;
+
+        await guard.TouchDayAsync(userId, businessDate);
+        return null;
+    }
+
     private static string MovementTypeLabel(MovementType type) => type switch
     {
         MovementType.Receive        => "Terima",
@@ -530,6 +559,7 @@ public class StockService(AppDbContext db) : IStockService
 
     public async Task<(bool Success, string? Error)> AdjustmentAsync(AdjustmentRequest request, Guid createdBy)
     {
+        if (await EnsureDayOpenAsync(createdBy) is { } dayError) return (false, dayError);
         if (request.AdjustmentQuantity == 0)
             return (false, "Jumlah penyesuaian tidak boleh nol.");
 
@@ -565,6 +595,7 @@ public class StockService(AppDbContext db) : IStockService
 
     public async Task<(bool Success, string? Error)> BulkAdjustmentAsync(BulkAdjustmentRequest request, Guid createdBy)
     {
+        if (await EnsureDayOpenAsync(createdBy) is { } dayError) return (false, dayError);
         if (!request.Items.Any())
             return (false, "Setidaknya satu item diperlukan.");
 
