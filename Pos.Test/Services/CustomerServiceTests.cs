@@ -381,5 +381,316 @@ public class CustomerServiceTests
         Assert.Equal(30000m, debt!.OutstandingDebt);
     }
 
+    // ── Stock summary — FR-CST-011 ("Pergerakan Stok" per pelanggan) ───────
+
+    /// <summary>Wednesday, so the containing calendar week is 2026-03-16 .. 2026-03-22.</summary>
+    private static readonly DateOnly SummaryAnchor = new(2026, 3, 18);
+
+    private static string Iso(DateOnly date) => date.ToString("yyyy-MM-dd");
+
+    /// <summary>A UTC timestamp that falls at noon WIB on the given date.</summary>
+    private static DateTime WibNoon(DateOnly date) =>
+        Pos.Api.Services.WibTimeZone.GetUtcDayBounds(date).Start.AddHours(5);
+
+    private Guid AddCustomer(string name)
+    {
+        var id = Guid.NewGuid();
+        _db.Customers.Add(new Customer { Id = id, Name = name, IsActive = true });
+        _db.SaveChanges();
+        return id;
+    }
+
+    private Guid AddKurir(string name)
+    {
+        var id = Guid.NewGuid();
+        _db.Users.Add(new User
+        {
+            Id = id, Name = name, Username = name.Replace(" ", "").ToLowerInvariant(),
+            PasswordHash = "x", Role = UserRole.Kurir, IsActive = true
+        });
+        _db.SaveChanges();
+        return id;
+    }
+
+    private Guid AddSimpleProduct(string name)
+    {
+        var id = Guid.NewGuid();
+        _db.Products.Add(new Product
+        {
+            Id = id, Name = name, Category = ProductCategory.Simple,
+            Type = ProductType.Air, Unit = "karton", BasePrice = 30000m, IsActive = true
+        });
+        _db.SaveChanges();
+        return id;
+    }
+
+    /// <summary>Adds a movement belonging to a transaction of <paramref name="customerId"/>.</summary>
+    private void AddCustomerMovement(
+        Guid customerId, Guid productId, DateOnly date, MovementType type, ContainerStatus status,
+        int quantity, Guid? staffId = null, bool isReversed = false, bool isReversal = false)
+    {
+        var transactionId = Guid.NewGuid();
+        _db.Transactions.Add(new Transaction
+        {
+            Id = transactionId, TransactionType = TransactionType.Delivery,
+            CustomerId = customerId, StaffId = staffId ?? StaffId, LocationId = LocationId,
+            Status = TransactionStatus.Completed, PaymentMethod = PaymentMethod.Cash,
+            CreatedAt = WibNoon(date)
+        });
+        _db.StockMovements.Add(new StockMovement
+        {
+            Id = Guid.NewGuid(), ProductId = productId,
+            MovementType = type, ContainerStatus = status, Quantity = quantity,
+            FromLocationId = type == MovementType.Dispatch ? LocationId : null,
+            ToLocationId = type == MovementType.Dispatch ? null : LocationId,
+            TransactionId = transactionId,
+            IsReversed = isReversed, IsReversal = isReversal,
+            CreatedBy = staffId ?? StaffId, CreatedAt = WibNoon(date)
+        });
+        _db.SaveChanges();
+    }
+
+    /// <summary>Adds a movement with no transaction (e.g. a vendor receive) — never customer-linked.</summary>
+    private void AddVendorMovement(
+        Guid productId, DateOnly date, MovementType type, ContainerStatus status, int quantity)
+    {
+        _db.StockMovements.Add(new StockMovement
+        {
+            Id = Guid.NewGuid(), ProductId = productId,
+            MovementType = type, ContainerStatus = status, Quantity = quantity,
+            ToLocationId = LocationId, CreatedBy = StaffId, CreatedAt = WibNoon(date)
+        });
+        _db.SaveChanges();
+    }
+
+    /// <summary>Resolves a preset through the production resolver, then loads its summary.</summary>
+    private async Task<CustomerStockSummaryResponse> GetSummaryAsync(Guid customerId, string period, DateOnly anchor)
+    {
+        var resolved = Pos.Api.Services.StockPeriodRange.TryResolve(
+            period, anchor, null, null, out var normalized, out var start, out var end, out var error);
+        Assert.True(resolved, error);
+        return (await _sut.GetStockSummaryAsync(customerId, normalized, start, end))!;
+    }
+
+    [Fact]
+    public async Task GetStockSummary_NonExistentCustomer_ReturnsNull()
+    {
+        var result = await _sut.GetStockSummaryAsync(Guid.NewGuid(), "day", SummaryAnchor, SummaryAnchor);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_DispatchFilledRefillable_CountsAsSold()
+    {
+        var customerId = AddCustomer("Bu Ani");
+        AddCustomerMovement(customerId, ProductId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Filled, 3);
+
+        var result = await GetSummaryAsync(customerId, "day", SummaryAnchor);
+        var entry = Assert.Single(result.Items);
+
+        Assert.Equal(3, entry.TotalSold);
+        Assert.Equal(0, entry.TotalReturned);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_DispatchEmptyRefillable_NotCountedAsSold()
+    {
+        var customerId = AddCustomer("Bu Ani");
+        AddCustomerMovement(customerId, ProductId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Empty, 2);
+
+        var result = await GetSummaryAsync(customerId, "day", SummaryAnchor);
+
+        Assert.Empty(result.Items);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_SimpleProductDispatch_CountsAllAsSold()
+    {
+        var customerId = AddCustomer("Toko Sedap");
+        var simpleId = AddSimpleProduct("Aqua Karton");
+        AddCustomerMovement(customerId, simpleId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Na, 5);
+
+        var result = await GetSummaryAsync(customerId, "day", SummaryAnchor);
+        var entry = Assert.Single(result.Items);
+
+        Assert.Equal(5, entry.TotalSold);
+        Assert.Equal("simple", entry.ProductCategory);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_EmptyContainerReturn_CountsAsReturned()
+    {
+        var customerId = AddCustomer("Bu Ani");
+        AddCustomerMovement(customerId, ProductId, SummaryAnchor, MovementType.Receive, ContainerStatus.Empty, 4);
+
+        var result = await GetSummaryAsync(customerId, "day", SummaryAnchor);
+        var entry = Assert.Single(result.Items);
+
+        Assert.Equal(4, entry.TotalReturned);
+        Assert.Equal(0, entry.TotalSold);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_FilledInboundOnCustomerTransaction_NotCountedAsReturned()
+    {
+        var customerId = AddCustomer("Bu Ani");
+        AddCustomerMovement(customerId, ProductId, SummaryAnchor, MovementType.Receive, ContainerStatus.Filled, 9);
+
+        var result = await GetSummaryAsync(customerId, "day", SummaryAnchor);
+
+        // "Dikembalikan" only counts empty containers handed back by the customer
+        Assert.Empty(result.Items);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_OtherCustomerMovements_Excluded()
+    {
+        var customerId = AddCustomer("Bu Ani");
+        var otherCustomerId = AddCustomer("Pak Joko");
+        AddCustomerMovement(customerId, ProductId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Filled, 3);
+        AddCustomerMovement(otherCustomerId, ProductId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Filled, 99);
+
+        var result = await GetSummaryAsync(customerId, "day", SummaryAnchor);
+
+        Assert.Equal(3, Assert.Single(result.Items).TotalSold);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_MovementWithoutTransaction_Excluded()
+    {
+        var customerId = AddCustomer("Bu Ani");
+        AddVendorMovement(ProductId, SummaryAnchor, MovementType.Receive, ContainerStatus.Filled, 50);
+
+        var result = await GetSummaryAsync(customerId, "day", SummaryAnchor);
+
+        Assert.Empty(result.Items);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_ReversedMovements_Excluded()
+    {
+        var customerId = AddCustomer("Bu Ani");
+        AddCustomerMovement(customerId, ProductId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Filled, 5,
+            isReversed: true);
+        AddCustomerMovement(customerId, ProductId, SummaryAnchor, MovementType.Receive, ContainerStatus.Empty, 5,
+            isReversal: true);
+
+        var result = await GetSummaryAsync(customerId, "day", SummaryAnchor);
+
+        Assert.Empty(result.Items);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_DayPeriod_IncludesOnlyAnchorDay()
+    {
+        var customerId = AddCustomer("Bu Ani");
+        AddCustomerMovement(customerId, ProductId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Filled, 3);
+        AddCustomerMovement(customerId, ProductId, SummaryAnchor.AddDays(-1), MovementType.Dispatch, ContainerStatus.Filled, 99);
+
+        var result = await GetSummaryAsync(customerId, "day", SummaryAnchor);
+
+        Assert.Equal("day", result.Period);
+        Assert.Equal(Iso(SummaryAnchor), result.StartDate);
+        Assert.Equal(Iso(SummaryAnchor), result.EndDate);
+        Assert.Equal(3, Assert.Single(result.Items).TotalSold);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_WeekPeriod_SpansMondayToSunday()
+    {
+        var customerId = AddCustomer("Bu Ani");
+        AddCustomerMovement(customerId, ProductId, new DateOnly(2026, 3, 16), MovementType.Dispatch, ContainerStatus.Filled, 2); // Monday
+        AddCustomerMovement(customerId, ProductId, new DateOnly(2026, 3, 22), MovementType.Dispatch, ContainerStatus.Filled, 3); // Sunday
+        AddCustomerMovement(customerId, ProductId, new DateOnly(2026, 3, 15), MovementType.Dispatch, ContainerStatus.Filled, 50); // Sunday before
+        AddCustomerMovement(customerId, ProductId, new DateOnly(2026, 3, 23), MovementType.Dispatch, ContainerStatus.Filled, 60); // Monday after
+
+        var result = await GetSummaryAsync(customerId, "week", SummaryAnchor);
+
+        Assert.Equal("2026-03-16", result.StartDate);
+        Assert.Equal("2026-03-22", result.EndDate);
+        Assert.Equal(5, Assert.Single(result.Items).TotalSold);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_CustomRange_UsesSuppliedBoundsInclusive()
+    {
+        var customerId = AddCustomer("Bu Ani");
+        AddCustomerMovement(customerId, ProductId, new DateOnly(2026, 3, 10), MovementType.Dispatch, ContainerStatus.Filled, 2);
+        AddCustomerMovement(customerId, ProductId, new DateOnly(2026, 3, 20), MovementType.Dispatch, ContainerStatus.Filled, 3);
+        AddCustomerMovement(customerId, ProductId, new DateOnly(2026, 3, 21), MovementType.Dispatch, ContainerStatus.Filled, 70);
+
+        var result = await _sut.GetStockSummaryAsync(
+            customerId, "custom", new DateOnly(2026, 3, 10), new DateOnly(2026, 3, 20));
+
+        Assert.Equal("custom", result!.Period);
+        Assert.Equal("2026-03-10", result.StartDate);
+        Assert.Equal("2026-03-20", result.EndDate);
+        Assert.Equal(5, Assert.Single(result.Items).TotalSold);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_NoActivityInRange_ReturnsEmptyItems()
+    {
+        var customerId = AddCustomer("Bu Ani");
+        AddCustomerMovement(customerId, ProductId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Filled, 3);
+
+        var result = await _sut.GetStockSummaryAsync(
+            customerId, "custom", new DateOnly(2025, 1, 1), new DateOnly(2025, 1, 31));
+
+        Assert.Empty(result!.Items);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_SortedByProductName()
+    {
+        var customerId = AddCustomer("Bu Ani");
+        var zebraId = AddSimpleProduct("Zebra");
+        var alphaId = AddSimpleProduct("Alpha");
+        AddCustomerMovement(customerId, zebraId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Na, 1);
+        AddCustomerMovement(customerId, alphaId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Na, 1);
+
+        var result = await GetSummaryAsync(customerId, "day", SummaryAnchor);
+
+        Assert.Equal(new[] { "Alpha", "Zebra" }, result.Items.Select(i => i.ProductName));
+    }
+
+    [Fact]
+    public async Task GetStockSummary_StaffBreakdown_SortedBySoldThenName()
+    {
+        var customerId = AddCustomer("Bu Ani");
+        var otherStaffId = AddKurir("Andi Kurir");
+        AddCustomerMovement(customerId, ProductId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Filled, 8,
+            staffId: otherStaffId);
+        AddCustomerMovement(customerId, ProductId, SummaryAnchor, MovementType.Receive, ContainerStatus.Empty, 3,
+            staffId: otherStaffId);
+        AddCustomerMovement(customerId, ProductId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Filled, 2);
+
+        var result = await GetSummaryAsync(customerId, "day", SummaryAnchor);
+        var entry = Assert.Single(result.Items);
+        var staff = entry.Staff.ToList();
+
+        Assert.Equal(10, entry.TotalSold);
+        Assert.Equal(3, entry.TotalReturned);
+        Assert.Equal(2, staff.Count);
+        Assert.Equal("Andi Kurir", staff[0].StaffName);
+        Assert.Equal(8, staff[0].Sold);
+        Assert.Equal(3, staff[0].Returned);
+        Assert.Equal(2, staff[1].Sold);
+    }
+
+    [Fact]
+    public async Task GetStockSummary_EchoesCustomerNameAndResolvedRange()
+    {
+        var customerId = AddCustomer("Bu Ani");
+        AddCustomerMovement(customerId, ProductId, SummaryAnchor, MovementType.Dispatch, ContainerStatus.Filled, 1);
+
+        var result = await GetSummaryAsync(customerId, "month", SummaryAnchor);
+
+        Assert.Equal(customerId, result.CustomerId);
+        Assert.Equal("Bu Ani", result.CustomerName);
+        Assert.Equal("2026-03-01", result.StartDate);
+        Assert.Equal("2026-03-31", result.EndDate);
+    }
+
     }
 

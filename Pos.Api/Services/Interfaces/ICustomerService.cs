@@ -19,4 +19,10 @@ public interface ICustomerService
     Task<CustomerDebtSummaryResponse?> GetDebtAsync(Guid customerId);
     Task<ContainerLoanSummaryResponse?> GetContainerLoansAsync(Guid customerId);
     Task<CustomerDebtHistoryResponse?> GetDebtHistoryAsync(Guid customerId);
+
+    /// <summary>
+    /// FR-CST-011 — per-customer "Pergerakan Stok" summary (Terjual / Dikembalikan) for an inclusive
+    /// WIB date range. Returns <c>null</c> when the customer does not exist.
+    /// </summary>
+    Task<CustomerStockSummaryResponse?> GetStockSummaryAsync(Guid customerId, string period, DateOnly rangeStart, DateOnly rangeEnd);
 }
