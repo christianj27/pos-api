@@ -1,12 +1,12 @@
 # ============================================================
 # POS API — Multi-stage Dockerfile (build → test → publish → runtime)
 #
-# PLACE: POS/Project/Backend/Pos/Pos.Api/Dockerfile
-# (part of your local structure: Backend/Pos/Pos.Api/)
+# PLACE: POS/Project/Backend/pos-api/Pos.Api/Dockerfile
+# (part of your local structure: Backend/pos-api/Pos.Api/)
 #
 # The Dockerfile lives INSIDE Pos.Api/ but the build context is
-# the solution root (docker-compose sets context: ./Backend/Pos),
-# so COPY paths are relative to Backend/Pos/, not this file.
+# the solution root (docker-compose sets context: ./Backend/pos-api),
+# so COPY paths are relative to Backend/pos-api/, not this file.
 # ============================================================
 
 # ---------- STAGE 1: RESTORE + BUILD ----------

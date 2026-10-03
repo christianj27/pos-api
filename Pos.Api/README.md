@@ -109,9 +109,9 @@ For full field-level request/response contracts, see Document/API_CONTRACT.md.
 - Money values use 2-decimal precision
 
 ## Testing
-From the solution root or the Backend project folder
+From the solution root (`Project/Backend/pos-api/`)
 ```bash
-dotnet test Project/Backend/Pos/Pos.Test/Pos.Test.csproj
+dotnet test Pos.Test/Pos.Test.csproj
 ```
 
 ## Deployment Notes

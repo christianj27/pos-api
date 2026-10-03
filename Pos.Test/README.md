@@ -9,17 +9,17 @@ Unit and integration-style tests for the `Pos.Api` project using xUnit, Moq, and
 - Microsoft.NET.Test.Sdk + coverlet.collector (VS Test + coverage)
 
 ## Quick Start
-From the solution root or this project folder:
+From the solution root (`Project/Backend/pos-api/`):
 ```bash
 # restore & build
 dotnet restore
 dotnet build
 
 # run all tests
-dotnet test Project/Backend/Pos/Pos.Test/Pos.Test.csproj
+dotnet test Pos.Test/Pos.Test.csproj
 
 # collect coverage (XPlat)
-dotnet test Project/Backend/Pos/Pos.Test/Pos.Test.csproj --collect:"XPlat Code Coverage"
+dotnet test Pos.Test/Pos.Test.csproj --collect:"XPlat Code Coverage"
 ```
 Results are written under `TestResults/` (per run). Many IDEs can visualize the `coverage.cobertura.xml` emitted by Coverlet.
 
