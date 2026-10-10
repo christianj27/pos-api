@@ -16,6 +16,18 @@ public interface ICustomerService
     Task<(bool Success, string? Error)> DeleteAsync(Guid id);
     Task<CustomerPricingResponse?> GetPricingAsync(Guid customerId);
     Task<(bool Success, string? Error)> UpdatePricingAsync(Guid customerId, UpdateCustomerPricingRequest request);
+
+    /// <summary>
+    /// FR-CST-012 — active customers that have a custom price for the product (bulk adjustment preview).
+    /// Returns <c>null</c> when the product does not exist.
+    /// </summary>
+    Task<ProductCustomerPricingResponse?> GetPricingByProductAsync(Guid productId);
+
+    /// <summary>
+    /// FR-CST-012 — adds a signed fixed amount to the selected customers' custom price for one product.
+    /// All or nothing: any rule violation returns an error and changes nothing.
+    /// </summary>
+    Task<(BulkAdjustCustomerPricingResponse? Result, string? Error)> BulkAdjustPricingAsync(BulkAdjustCustomerPricingRequest request);
     Task<CustomerDebtSummaryResponse?> GetDebtAsync(Guid customerId);
     Task<ContainerLoanSummaryResponse?> GetContainerLoansAsync(Guid customerId);
     Task<CustomerDebtHistoryResponse?> GetDebtHistoryAsync(Guid customerId);

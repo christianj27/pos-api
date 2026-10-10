@@ -1,5 +1,5 @@
 # POS App — Architecture Plan
-> MSMe Water & Gas | Doc Version 1.1 | App Version 1.1.0 | Last updated: September 21, 2026
+> MSMe Water & Gas | Doc Version 1.2 | App Version 1.2.0 | Last updated: October 10, 2026
 
 ---
 
@@ -138,7 +138,8 @@ Customers
   initial_debt    DECIMAL(15,2)  DEFAULT 0   -- opening balance from paper records
   created_at      TIMESTAMPTZ
 
-CustomerPricing                     -- per-customer price override
+CustomerPricing                     -- per-customer price override; base_price changes never cascade automatically —
+                                    -- the owner shifts overrides explicitly via bulk-adjust (FR-CST-012)
   customer_id     UUID  FK → Customers
   product_id      UUID  FK → Products
   custom_price    DECIMAL(15,2)
@@ -294,6 +295,9 @@ PUT    /api/customers/{id}
 DELETE /api/customers/{id}         (soft delete: is_active = false; record retained for history)
 GET    /api/customers/{id}/pricing
 PUT    /api/customers/{id}/pricing
+GET    /api/customers/pricing      -- ?product_id=<id>; active customers with a custom price for that product (FR-CST-012 preview)
+POST   /api/customers/pricing/bulk-adjust -- body: { product_id, amount, customer_ids[] }; adds a signed fixed amount to each
+                                   -- selected customer's custom price in one SaveChanges (all or nothing); every new price must be > 0
 GET    /api/customers/{id}/debt    -- outstanding debt summary
 GET    /api/customers/{id}/container-loans  -- borrowed containers
 
@@ -453,7 +457,7 @@ src/
 │   ├── Profile/             -- all roles; view/edit own name and password; logout (kurir/kasir)
   ├── Stock/               -- StockLevels (all roles); Riwayat tab (all roles); Kontainer tab (owner only); Terima/Tukar Agent/Defek (owner only); Transfer + Produksi (owner and kasir)
   ├── Transactions/        -- TransactionList, 3-step create overlay (DeliveryForm kurir / CounterSaleForm kasir/owner); Penugasan tab (all roles); assignment creation overlay (owner/kasir); fulfillment overlay (kurir)
-│   ├── Customers/           -- CustomerList, CustomerDebt, ContainerLoans
+│   ├── Customers/           -- CustomerList, CustomerDebt, ContainerLoans; "Sesuaikan Harga Khusus" bulk pricing modal (FR-CST-012, owner only)
 │   ├── DebtPayments/        -- two tabs: Hutang Aktif (clickable rows → CustomerDebtDetailPage) + Riwayat (date-filtered payment history)
 │   │   └── CustomerDebtDetailPage -- per-customer debt detail at /debt-payments/:customerId (owner/kasir)
 │   ├── CashFlow/            -- owner only; date-filtered cash flow summary + entry list at /cash-flow; record/edit/delete operational expenses (FR-CSH-006)

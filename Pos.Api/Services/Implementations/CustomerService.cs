@@ -158,6 +158,59 @@ public class CustomerService(AppDbContext db) : ICustomerService
         return (true, null);
     }
 
+    public async Task<ProductCustomerPricingResponse?> GetPricingByProductAsync(Guid productId)
+    {
+        var product = await db.Products.FindAsync(productId);
+        if (product is null) return null;
+
+        var items = await db.CustomerPricings
+            .Where(cp => cp.ProductId == productId && cp.Customer.IsActive)
+            .OrderBy(cp => cp.Customer.Name)
+            .Select(cp => new ProductCustomerPricingItem(
+                cp.CustomerId, cp.Customer.Name, cp.Customer.IsConfidential, cp.CustomPrice))
+            .ToListAsync();
+
+        return new ProductCustomerPricingResponse(product.Id, product.Name, product.Unit, product.BasePrice, items);
+    }
+
+    public async Task<(BulkAdjustCustomerPricingResponse? Result, string? Error)> BulkAdjustPricingAsync(
+        BulkAdjustCustomerPricingRequest request)
+    {
+        var product = await db.Products.FindAsync(request.ProductId);
+        if (product is null) return (null, "Produk tidak ditemukan.");
+        if (!product.IsActive) return (null, "Produk tidak aktif.");
+        if (request.Amount == 0) return (null, "Nominal penyesuaian tidak boleh nol.");
+
+        var customerIds = (request.CustomerIds ?? []).Distinct().ToList();
+        if (customerIds.Count == 0) return (null, "Pilih minimal satu pelanggan.");
+
+        var pricings = await db.CustomerPricings
+            .Include(cp => cp.Customer)
+            .Where(cp => cp.ProductId == request.ProductId
+                && customerIds.Contains(cp.CustomerId)
+                && cp.Customer.IsActive)
+            .OrderBy(cp => cp.Customer.Name)
+            .ToListAsync();
+
+        if (pricings.Count != customerIds.Count)
+            return (null, "Sebagian pelanggan tidak memiliki harga khusus untuk produk ini.");
+
+        var invalid = pricings.FirstOrDefault(cp => cp.CustomPrice + request.Amount <= 0);
+        if (invalid is not null)
+            return (null, $"Harga khusus {invalid.Customer.Name} akan menjadi Rp 0 atau kurang.");
+
+        var items = new List<BulkAdjustCustomerPricingItem>();
+        foreach (var cp in pricings)
+        {
+            var oldPrice = cp.CustomPrice;
+            cp.CustomPrice = oldPrice + request.Amount;
+            items.Add(new BulkAdjustCustomerPricingItem(cp.CustomerId, cp.Customer.Name, oldPrice, cp.CustomPrice));
+        }
+
+        await db.SaveChangesAsync();
+        return (new BulkAdjustCustomerPricingResponse(items.Count, items), null);
+    }
+
     public async Task<CustomerDebtSummaryResponse?> GetDebtAsync(Guid customerId)
     {
         var customer = await db.Customers.FindAsync(customerId);

@@ -66,6 +66,25 @@ public class CustomersController(ICustomerService customerService) : ControllerB
         return Ok(new { message = "Harga khusus berhasil diperbarui." });
     }
 
+    /// <summary>FR-CST-012 — active customers with a custom price for one product (bulk adjustment preview).</summary>
+    [HttpGet("pricing")]
+    [Authorize(Policy = "OwnerOnly")]
+    public async Task<IActionResult> GetPricingByProduct([FromQuery(Name = "product_id")] Guid productId)
+    {
+        var result = await customerService.GetPricingByProductAsync(productId);
+        return result is null ? NotFound() : Ok(result);
+    }
+
+    /// <summary>FR-CST-012 — shift the selected customers' custom price for one product by a fixed amount.</summary>
+    [HttpPost("pricing/bulk-adjust")]
+    [Authorize(Policy = "OwnerOnly")]
+    public async Task<IActionResult> BulkAdjustPricing([FromBody] BulkAdjustCustomerPricingRequest request)
+    {
+        var (result, error) = await customerService.BulkAdjustPricingAsync(request);
+        if (result is null) return BadRequest(new { message = error });
+        return Ok(result);
+    }
+
     [HttpGet("{id:guid}/debt")]
     [Authorize(Policy = "OwnerOnly")]
     public async Task<IActionResult> GetDebt(Guid id)

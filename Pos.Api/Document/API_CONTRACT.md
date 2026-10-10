@@ -1,5 +1,5 @@
 # API Contract — POS App
-> MSMe Water & Gas | Version 1.3 | Last updated: September 22, 2026
+> MSMe Water & Gas | Version 1.4 | Last updated: October 10, 2026
 
 ---
 
@@ -443,6 +443,71 @@ Returns the authenticated user's own record only.
 | `items[].custom_price` | number \| null | ❌ | `null` removes the override and reverts to base price |
 
 **Response `204`** — No content.
+
+---
+
+### GET /api/customers/pricing
+**Auth**: Owner only
+
+Lists every **active** customer that has a custom price for one product — the preview source for the bulk adjustment (FR-CST-012). Confidential customers are included.
+
+**Query Params**
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `product_id` | string (UUID) | ✅ | Product whose custom prices are listed |
+
+**Response `200`**
+| Field | Type | Notes |
+|---|---|---|
+| `product_id` | string (UUID) | — |
+| `product_name` | string | — |
+| `unit` | string | — |
+| `base_price` | number | Current product base price |
+| `items` | array | Sorted by `customer_name` ascending; empty when no customer has a custom price |
+| `items[].customer_id` | string (UUID) | — |
+| `items[].customer_name` | string | — |
+| `items[].is_confidential` | boolean | — |
+| `items[].custom_price` | number | Current custom price |
+
+**Error `404`** — product not found.
+
+---
+
+### POST /api/customers/pricing/bulk-adjust
+**Auth**: Owner only
+
+Adds a fixed signed amount to the custom price of one product for the selected customers (FR-CST-012). All rows are saved in one database write — **all or nothing**.
+
+**Request Body**
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `product_id` | string (UUID) | ✅ | Must be an existing **active** product |
+| `amount` | number | ✅ | Signed Rupiah amount, ≠ 0 (e.g. `1500`, `-500`) |
+| `customer_ids` | string[] (UUID) | ✅ | At least one; duplicates are ignored. Each must be an active customer with a custom price for `product_id` |
+
+```json
+{ "product_id": "…", "amount": 1500, "customer_ids": ["…", "…"] }
+```
+
+**Response `200`**
+| Field | Type | Notes |
+|---|---|---|
+| `updated_count` | number | Number of custom prices changed |
+| `items` | array | Sorted by `customer_name` |
+| `items[].customer_id` | string (UUID) | — |
+| `items[].customer_name` | string | — |
+| `items[].old_price` | number | Custom price before the adjustment |
+| `items[].new_price` | number | `old_price + amount` |
+
+**Error `400`** — `{ "message": "…" }`, nothing is changed:
+| Condition | Message |
+|---|---|
+| Product missing | `"Produk tidak ditemukan."` |
+| Product inactive | `"Produk tidak aktif."` |
+| `amount` = 0 | `"Nominal penyesuaian tidak boleh nol."` |
+| `customer_ids` empty | `"Pilih minimal satu pelanggan."` |
+| A customer is inactive, missing, or has no custom price for the product | `"Sebagian pelanggan tidak memiliki harga khusus untuk produk ini."` |
+| A resulting price ≤ 0 | `"Harga khusus {customer_name} akan menjadi Rp 0 atau kurang."` |
 
 ---
 

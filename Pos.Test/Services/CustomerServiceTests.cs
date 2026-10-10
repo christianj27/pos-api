@@ -268,6 +268,166 @@ public class CustomerServiceTests
         Assert.NotNull(err);
     }
 
+    // ── Bulk pricing (FR-CST-012) ──────────────────────────────────────────
+
+    private async Task<Guid> CreateCustomerWithPrice(string name, decimal price, bool isActive = true)
+    {
+        var customer = new Customer { Id = Guid.NewGuid(), Name = name, IsActive = isActive };
+        _db.Customers.Add(customer);
+        _db.CustomerPricings.Add(new CustomerPricing
+        {
+            CustomerId = customer.Id, ProductId = ProductId, CustomPrice = price
+        });
+        await _db.SaveChangesAsync();
+        return customer.Id;
+    }
+
+    private decimal PriceOf(Guid customerId) =>
+        _db.CustomerPricings.Single(cp => cp.CustomerId == customerId && cp.ProductId == ProductId).CustomPrice;
+
+    [Fact]
+    public async Task GetPricingByProduct_ReturnsOnlyActiveCustomersWithOverride_SortedByName()
+    {
+        var budi = await CreateCustomerWithPrice("Budi", 4500m);
+        var ani = await CreateCustomerWithPrice("Ani", 4800m);
+        await CreateCustomerWithPrice("Inactive", 4000m, isActive: false);
+        await _sut.CreateAsync(new CreateCustomerRequest("No Override", null, null));
+
+        var result = await _sut.GetPricingByProductAsync(ProductId);
+
+        Assert.NotNull(result);
+        Assert.Equal(5000m, result!.BasePrice);
+        Assert.Equal(new[] { ani, budi }, result.Items.Select(i => i.CustomerId));
+        Assert.Equal(4800m, result.Items.First().CustomPrice);
+    }
+
+    [Fact]
+    public async Task GetPricingByProduct_UnknownProduct_ReturnsNull()
+    {
+        Assert.Null(await _sut.GetPricingByProductAsync(Guid.NewGuid()));
+    }
+
+    [Fact]
+    public async Task BulkAdjustPricing_PositiveAmount_UpdatesOnlySelectedCustomers()
+    {
+        var budi = await CreateCustomerWithPrice("Budi", 4500m);
+        var ani = await CreateCustomerWithPrice("Ani", 4800m);
+        var skipped = await CreateCustomerWithPrice("Skipped", 4000m);
+
+        var (result, err) = await _sut.BulkAdjustPricingAsync(
+            new BulkAdjustCustomerPricingRequest(ProductId, 1500m, new[] { budi, ani }));
+
+        Assert.Null(err);
+        Assert.Equal(2, result!.UpdatedCount);
+        Assert.Equal(6000m, PriceOf(budi));
+        Assert.Equal(6300m, PriceOf(ani));
+        Assert.Equal(4000m, PriceOf(skipped));
+        var aniItem = result.Items.First();
+        Assert.Equal(ani, aniItem.CustomerId);
+        Assert.Equal(4800m, aniItem.OldPrice);
+        Assert.Equal(6300m, aniItem.NewPrice);
+    }
+
+    [Fact]
+    public async Task BulkAdjustPricing_NegativeAmount_DecreasesPrice()
+    {
+        var budi = await CreateCustomerWithPrice("Budi", 4500m);
+
+        var (result, err) = await _sut.BulkAdjustPricingAsync(
+            new BulkAdjustCustomerPricingRequest(ProductId, -500m, new[] { budi }));
+
+        Assert.Null(err);
+        Assert.Equal(1, result!.UpdatedCount);
+        Assert.Equal(4000m, PriceOf(budi));
+    }
+
+    [Fact]
+    public async Task BulkAdjustPricing_ResultNotPositive_RejectsAndChangesNothing()
+    {
+        var budi = await CreateCustomerWithPrice("Budi", 4500m);
+        var cheap = await CreateCustomerWithPrice("Murah", 1000m);
+
+        var (result, err) = await _sut.BulkAdjustPricingAsync(
+            new BulkAdjustCustomerPricingRequest(ProductId, -1000m, new[] { budi, cheap }));
+
+        Assert.Null(result);
+        Assert.Equal("Harga khusus Murah akan menjadi Rp 0 atau kurang.", err);
+        Assert.Equal(4500m, PriceOf(budi));
+        Assert.Equal(1000m, PriceOf(cheap));
+    }
+
+    [Fact]
+    public async Task BulkAdjustPricing_ZeroAmount_ReturnsError()
+    {
+        var budi = await CreateCustomerWithPrice("Budi", 4500m);
+
+        var (result, err) = await _sut.BulkAdjustPricingAsync(
+            new BulkAdjustCustomerPricingRequest(ProductId, 0m, new[] { budi }));
+
+        Assert.Null(result);
+        Assert.Equal("Nominal penyesuaian tidak boleh nol.", err);
+    }
+
+    [Fact]
+    public async Task BulkAdjustPricing_NoCustomers_ReturnsError()
+    {
+        var (result, err) = await _sut.BulkAdjustPricingAsync(
+            new BulkAdjustCustomerPricingRequest(ProductId, 1500m, Array.Empty<Guid>()));
+
+        Assert.Null(result);
+        Assert.Equal("Pilih minimal satu pelanggan.", err);
+    }
+
+    [Fact]
+    public async Task BulkAdjustPricing_CustomerWithoutOverrideOrInactive_RejectsAndChangesNothing()
+    {
+        var budi = await CreateCustomerWithPrice("Budi", 4500m);
+        var inactive = await CreateCustomerWithPrice("Inactive", 4000m, isActive: false);
+        var (noOverride, _) = await _sut.CreateAsync(new CreateCustomerRequest("No Override", null, null));
+
+        var (r1, e1) = await _sut.BulkAdjustPricingAsync(
+            new BulkAdjustCustomerPricingRequest(ProductId, 1500m, new[] { budi, noOverride!.Id }));
+        var (r2, e2) = await _sut.BulkAdjustPricingAsync(
+            new BulkAdjustCustomerPricingRequest(ProductId, 1500m, new[] { budi, inactive }));
+
+        Assert.Null(r1);
+        Assert.Null(r2);
+        Assert.Equal("Sebagian pelanggan tidak memiliki harga khusus untuk produk ini.", e1);
+        Assert.Equal(e1, e2);
+        Assert.Equal(4500m, PriceOf(budi));
+    }
+
+    [Fact]
+    public async Task BulkAdjustPricing_InactiveOrUnknownProduct_ReturnsError()
+    {
+        var budi = await CreateCustomerWithPrice("Budi", 4500m);
+
+        var (_, unknownErr) = await _sut.BulkAdjustPricingAsync(
+            new BulkAdjustCustomerPricingRequest(Guid.NewGuid(), 1500m, new[] { budi }));
+        Assert.Equal("Produk tidak ditemukan.", unknownErr);
+
+        _db.Products.Single(p => p.Id == ProductId).IsActive = false;
+        await _db.SaveChangesAsync();
+        var (result, inactiveErr) = await _sut.BulkAdjustPricingAsync(
+            new BulkAdjustCustomerPricingRequest(ProductId, 1500m, new[] { budi }));
+
+        Assert.Null(result);
+        Assert.Equal("Produk tidak aktif.", inactiveErr);
+    }
+
+    [Fact]
+    public async Task BulkAdjustPricing_DuplicateIds_CountedOnce()
+    {
+        var budi = await CreateCustomerWithPrice("Budi", 4500m);
+
+        var (result, err) = await _sut.BulkAdjustPricingAsync(
+            new BulkAdjustCustomerPricingRequest(ProductId, 1500m, new[] { budi, budi }));
+
+        Assert.Null(err);
+        Assert.Equal(1, result!.UpdatedCount);
+        Assert.Equal(6000m, PriceOf(budi));
+    }
+
     // ── Debt ───────────────────────────────────────────────────────────────
 
     [Fact]
